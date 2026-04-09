@@ -67,7 +67,10 @@ export async function runAgent(user: AuthUser, projectId: string, message: strin
   return apiFetch<{
     resourceId: string;
     workspaceRootPath: string;
-    message: string;
+    threadId: string;
+    runId?: string;
+    modelId?: string;
+    text: string;
     __meta: { status: number; durationMs: number };
   }>(`/api/projects/${projectId}/agent/run`, user, {
     method: 'POST',

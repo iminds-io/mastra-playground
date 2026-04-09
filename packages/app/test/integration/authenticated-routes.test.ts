@@ -21,8 +21,10 @@ describe('authenticated routes', () => {
       executeProjectAgent: async () => ({
         resourceId: 'project:project-1',
         workspaceRootPath: '/tmp/project-1',
-        binding: null,
-        message: 'hello',
+        threadId: 'project-1',
+        runId: 'run-123',
+        modelId: 'openai/gpt-4.1-mini',
+        text: 'hello from agent',
       }),
     });
 
@@ -59,8 +61,10 @@ describe('authenticated routes', () => {
       executeProjectAgent: async ({ projectId, message }) => ({
         resourceId: `project:${projectId}`,
         workspaceRootPath: `/tmp/${projectId}`,
-        binding: null,
-        message,
+        threadId: projectId,
+        runId: 'run-123',
+        modelId: 'openai/gpt-4.1-mini',
+        text: `agent heard: ${message}`,
       }),
     });
 
@@ -77,7 +81,10 @@ describe('authenticated routes', () => {
     expect(await response.json()).toEqual({
       resourceId: 'project:project-1',
       workspaceRootPath: '/tmp/project-1',
-      message: 'hello',
+      threadId: 'project-1',
+      runId: 'run-123',
+      modelId: 'openai/gpt-4.1-mini',
+      text: 'agent heard: hello',
     });
   });
 });

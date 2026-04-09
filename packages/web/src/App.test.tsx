@@ -42,7 +42,10 @@ vi.mock('./api', () => ({
   runAgent: vi.fn(async (_user: unknown, projectId: string, message: string) => ({
     resourceId: `project:${projectId}`,
     workspaceRootPath: `/tmp/${projectId}`,
-    message,
+    threadId: projectId,
+    runId: 'run-123',
+    modelId: 'openai/gpt-4.1-mini',
+    text: `agent heard: ${message}`,
   })),
 }));
 
@@ -68,7 +71,7 @@ describe('App', () => {
         return (
           element?.tagName === 'PRE' &&
           content.includes('"resourceId": "project:project-123"') &&
-          content.includes('"message": "hello"')
+          content.includes('"text": "agent heard: hello"')
         );
       });
 

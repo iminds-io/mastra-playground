@@ -15,8 +15,10 @@ type ExecuteProjectAgent = (input: {
 }) => Promise<{
   resourceId: string;
   workspaceRootPath: string;
-  binding: unknown;
-  message: string;
+  threadId: string;
+  runId?: string;
+  modelId?: string;
+  text: string;
 }>;
 
 type AppFactoryParams = {
@@ -81,7 +83,8 @@ export async function createApp(params: AppFactoryParams = {}) {
   app.post('/api/projects/:projectId/agent/run', async (c) => {
     const principal = c.get('principal');
     const body = await c.req.json<{ message?: string }>();
-    const result = await (params.executeProjectAgent ?? executeProjectAgent)({
+    const result = await (params.executeProjectAgent ??
+      ((input) => executeProjectAgent(input, { mastra })))({
       firebaseUid: principal.uid,
       projectId: c.req.param('projectId'),
       message: body.message ?? '',
@@ -90,7 +93,10 @@ export async function createApp(params: AppFactoryParams = {}) {
     return c.json({
       resourceId: result.resourceId,
       workspaceRootPath: result.workspaceRootPath,
-      message: result.message,
+      threadId: result.threadId,
+      runId: result.runId,
+      modelId: result.modelId,
+      text: result.text,
     });
   });
 

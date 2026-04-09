@@ -1,7 +1,9 @@
 import { rm } from 'node:fs/promises';
 import { beforeEach, describe, expect, it } from 'vitest';
+import type { RequestContext } from '@mastra/core/request-context';
 
 import { pool } from '../../src/db/client';
+import type { ProjectAgentRequestContext } from '../../src/mastra/execution/request-context';
 import { addOrganizationMembership } from '../../src/db/repositories/memberships';
 import { createOrganization } from '../../src/db/repositories/organizations';
 import { createProject } from '../../src/db/repositories/projects';
@@ -31,7 +33,7 @@ describe('executeProjectAgent', () => {
     });
   });
 
-  it('derives the project resource id and resolved workspace', async () => {
+  it('returns model text from the resolved project execution context', async () => {
     const organization = await createOrganization({
       name: 'Demo Org',
       firebaseProjectId: 'mindmap-aff6a',
@@ -61,14 +63,49 @@ describe('executeProjectAgent', () => {
       activeAgentVersion: 'v1',
     });
 
-    const result = await executeProjectAgent({
-      firebaseUid: 'firebase-user-1',
-      projectId: project.id,
-      message: 'hello',
-    });
+    const result = await executeProjectAgent(
+      {
+        firebaseUid: 'firebase-user-1',
+        projectId: project.id,
+        message: 'hello',
+      },
+      {
+        mastra: {
+          getAgent() {
+            return {
+              async generate(
+                message: string,
+                options: {
+                  requestContext: RequestContext<ProjectAgentRequestContext>;
+                  resourceId: string;
+                  threadId: string;
+                },
+              ) {
+                expect(message).toBe('hello');
+                expect(options.resourceId).toBe(`project:${project.id}`);
+                expect(options.threadId).toBe(project.id);
+                expect(options.requestContext?.get('projectId')).toBe(project.id);
+                expect(options.requestContext?.get('workspace')).toBeDefined();
+
+                return {
+                  text: 'Project agent says hello.',
+                  runId: 'run-123',
+                  response: {
+                    modelId: 'openai/gpt-4.1-mini',
+                  },
+                };
+              },
+            };
+          },
+        },
+      },
+    );
 
     expect(result.resourceId).toBe(`project:${project.id}`);
     expect(result.workspaceRootPath).toContain(`project_${project.id}`);
-    expect(result.message).toBe('hello');
+    expect(result.threadId).toBe(project.id);
+    expect(result.runId).toBe('run-123');
+    expect(result.modelId).toBe('openai/gpt-4.1-mini');
+    expect(result.text).toBe('Project agent says hello.');
   });
 });
