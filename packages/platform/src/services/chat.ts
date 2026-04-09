@@ -359,6 +359,7 @@ export async function createChannelPostForPrincipal(input: {
   const storageThread: StorageThreadType = {
     id: thread.id,
     resourceId,
+    title: thread.id,
     createdAt: now,
     updatedAt: now,
     metadata: {
