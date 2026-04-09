@@ -10,5 +10,5 @@ export async function listAppTables(): Promise<string[]> {
     order by table_name asc
   `);
 
-  return result.rows.map((row) => row.table_name);
+  return result.rows.map((row: { table_name: string }) => row.table_name);
 }

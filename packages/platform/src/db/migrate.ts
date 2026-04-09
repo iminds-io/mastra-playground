@@ -55,7 +55,7 @@ async function getAppliedVersions() {
     'select version from schema_migrations order by version asc',
   );
 
-  return new Set(result.rows.map((row) => row.version));
+  return new Set(result.rows.map((row: { version: string }) => row.version));
 }
 
 export async function migrate() {
