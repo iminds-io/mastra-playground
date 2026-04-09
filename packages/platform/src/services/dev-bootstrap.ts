@@ -69,6 +69,13 @@ export async function bootstrapProjectForPrincipal(input: {
     organizationId: organization.id,
     defaultChannelId: defaultChannel.id,
     workspaceRootPath: provisioned.root.root_path,
+    project: {
+      id: project.id,
+      organizationId: organization.id,
+      name: project.name,
+      slug: project.slug,
+      status: project.status,
+    },
     binding: {
       activeAgentRef: provisioned.binding.active_agent_ref,
       activeAgentVersion: provisioned.binding.active_agent_version,

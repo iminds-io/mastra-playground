@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const authState = {
   user: {
@@ -17,15 +17,40 @@ const api = vi.hoisted(() => ({
     emailVerified: true,
     name: 'Demo User',
   })),
-  bootstrapProject: vi.fn(async () => ({
-    projectId: 'project-123',
+  listAccessibleProjects: vi.fn(async () => ({
+    projects: [
+      {
+        id: 'project-123',
+        organizationId: 'org-1',
+        name: 'Alpha Workspace',
+        slug: 'alpha-workspace',
+        status: 'active',
+      },
+      {
+        id: 'project-456',
+        organizationId: 'org-1',
+        name: 'Beta Workspace',
+        slug: 'beta-workspace',
+        status: 'active',
+      },
+    ],
+  })),
+  bootstrapProject: vi.fn(async (_user: unknown, name: string) => ({
+    projectId: 'project-789',
     organizationId: 'org-123',
-    workspaceRootPath: '/tmp/project-123',
+    workspaceRootPath: '/tmp/project-789',
     binding: {
       activeAgentRef: 'default',
       activeAgentVersion: 'v1',
     },
     defaultChannelId: 'channel-general',
+    project: {
+      id: 'project-789',
+      organizationId: 'org-123',
+      name,
+      slug: 'demo-project',
+      status: 'active',
+    },
   })),
   getWorkspace: vi.fn(async (_user: unknown, projectId: string) => ({
     projectId,
@@ -45,63 +70,128 @@ const api = vi.hoisted(() => ({
         name: 'general',
         slug: 'general',
       },
+      {
+        id: 'channel-engineering',
+        name: 'engineering',
+        slug: 'engineering',
+      },
     ],
   })),
   createProjectChannel: vi.fn(async (_user: unknown, _projectId: string, name: string) => ({
     channel: {
-      id: 'channel-engineering',
+      id: 'channel-product',
       name,
       slug: name.toLowerCase(),
     },
   })),
-  listChannelThreads: vi.fn(async () => ({
-    threads: [
+  listChannelFeed: vi.fn(async () => ({
+    channel: {
+      id: 'channel-general',
+      name: 'general',
+      slug: 'general',
+    },
+    posts: [
       {
-        id: 'thread-1',
-        channelId: 'channel-general',
-        title: 'Kickoff',
-        lastMessageAt: '2026-04-09T00:00:00.000Z',
+        threadId: 'thread-1',
+        rootMessageId: 'message-1',
+        rootMessageText: 'Ship the workspace shell this sprint.',
+        rootMessageRole: 'user',
+        replyCount: 2,
+        lastMessageAt: '2026-04-09T01:00:00.000Z',
         createdAt: '2026-04-09T00:00:00.000Z',
-        updatedAt: '2026-04-09T00:00:00.000Z',
       },
     ],
   })),
-  createChannelThread: vi.fn(async (_user: unknown, _projectId: string, channelId: string, title: string) => ({
+  createChannelPost: vi.fn(async (_user: unknown, _projectId: string, channelId: string, message: string) => ({
     thread: {
       id: 'thread-2',
       channelId,
-      title,
-      lastMessageAt: null,
-      createdAt: '2026-04-09T00:00:00.000Z',
-      updatedAt: '2026-04-09T00:00:00.000Z',
+      title: null,
+      lastMessageAt: '2026-04-09T02:00:00.000Z',
+      createdAt: '2026-04-09T02:00:00.000Z',
+      updatedAt: '2026-04-09T02:00:00.000Z',
+    },
+    rootMessage: {
+      id: 'message-2',
+      role: 'user',
+      text: message,
+      createdAt: '2026-04-09T02:00:00.000Z',
     },
   })),
-  getChannelThread: vi.fn(async () => ({
+  getChannelThread: vi.fn(async (_user: unknown, _projectId: string, channelId: string, threadId: string) => ({
     thread: {
-      id: 'thread-1',
-      channelId: 'channel-general',
-      title: 'Kickoff',
-      lastMessageAt: '2026-04-09T00:00:00.000Z',
+      id: threadId,
+      channelId,
+      title: null,
+      lastMessageAt: '2026-04-09T01:00:00.000Z',
       createdAt: '2026-04-09T00:00:00.000Z',
-      updatedAt: '2026-04-09T00:00:00.000Z',
+      updatedAt: '2026-04-09T01:00:00.000Z',
     },
     messages: [
       {
         id: 'message-1',
-        role: 'assistant',
-        text: 'Welcome to the channel.',
+        role: 'user',
+        text: 'Ship the workspace shell this sprint.',
         createdAt: '2026-04-09T00:00:00.000Z',
+      },
+      {
+        id: 'message-2',
+        role: 'assistant',
+        text: 'I can break that into milestones.',
+        createdAt: '2026-04-09T00:01:00.000Z',
       },
     ],
   })),
-  sendChannelMessage: vi.fn(async (_user: unknown, _projectId: string, channelId: string, threadId: string, message: string) => ({
-    resourceId: `channel:${channelId}`,
-    workspaceRootPath: `/tmp/${threadId}`,
-    threadId,
-    runId: 'run-456',
-    modelId: 'openai/gpt-4.1-mini',
-    text: `assistant heard: ${message}`,
-  })),
+  streamThreadReply: vi.fn(async (
+    _user: unknown,
+    _projectId: string,
+    _channelId: string,
+    threadId: string,
+    message: string,
+    handlers: {
+      onEvent(event: { event: string; data: Record<string, unknown> }): void;
+    },
+  ) => {
+    handlers.onEvent({
+      event: 'ack',
+      data: {
+        threadId,
+      },
+    });
+    handlers.onEvent({
+      event: 'token',
+      data: {
+        text: 'Working ',
+      },
+    });
+    handlers.onEvent({
+      event: 'token',
+      data: {
+        text: 'through it.',
+      },
+    });
+    handlers.onEvent({
+      event: 'message_saved',
+      data: {
+        id: 'assistant-3',
+        role: 'assistant',
+        text: `Working through it. (${message})`,
+        createdAt: '2026-04-09T00:02:00.000Z',
+      },
+    });
+    handlers.onEvent({
+      event: 'thread_updated',
+      data: {
+        threadId,
+      },
+    });
+    handlers.onEvent({
+      event: 'done',
+      data: {
+        threadId,
+      },
+    });
+  }),
 }));
 
 vi.mock('./firebase', () => ({
@@ -124,49 +214,46 @@ describe('App', () => {
     vi.clearAllMocks();
   });
 
-  it('bootstraps a project from the admin test route and runs the renamed admin endpoint', async () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('bootstraps a project from admin and shows the new workspace in the project rail', async () => {
     render(<App />);
 
     fireEvent.click(screen.getByRole('button', { name: /create demo project/i }));
 
     await waitFor(() => {
-      expect(screen.getByDisplayValue('project-123')).toBeTruthy();
+      expect(api.bootstrapProject).toHaveBeenCalled();
     });
 
-    fireEvent.change(screen.getByLabelText(/message/i), {
-      target: { value: 'hello admin' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: /run admin test/i }));
+    fireEvent.click(screen.getByRole('button', { name: /open chat workspace/i }));
 
     await waitFor(() => {
-      const agentResponse = screen.getByText((content, element) => {
-        return (
-          element?.tagName === 'PRE' &&
-          content.includes('"resourceId": "project:project-123"') &&
-          content.includes('"text": "admin heard: hello admin"')
-        );
-      });
-
-      expect(agentResponse).toBeTruthy();
+      expect(api.listAccessibleProjects).toHaveBeenCalledWith(authState.user);
     });
 
-    expect(api.runAdminTest).toHaveBeenCalledWith(authState.user, 'project-123', 'hello admin');
+    expect(await screen.findByRole('button', { name: /alpha workspace/i })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: /demo project/i })).toBeTruthy();
   });
 
-  it('loads channel threads on the chat route and sends messages to a persisted thread', async () => {
+  it('renders the channel feed as root posts and opens a thread drawer for replies', async () => {
     window.history.pushState({}, '', '/chat/project-123');
 
     render(<App />);
 
     await waitFor(() => {
+      expect(api.listAccessibleProjects).toHaveBeenCalledWith(authState.user);
       expect(api.listProjectChannels).toHaveBeenCalledWith(authState.user, 'project-123');
+      expect(api.listChannelFeed).toHaveBeenCalledWith(authState.user, 'project-123', 'channel-general');
     });
 
-    await waitFor(() => {
-      expect(api.listChannelThreads).toHaveBeenCalledWith(authState.user, 'project-123', 'channel-general');
-    });
+    expect(
+      screen.getByRole('button', { name: /open thread for ship the workspace shell this sprint\./i }),
+    ).toBeTruthy();
+    expect(screen.getByText(/2 replies/i)).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: /kickoff/i }));
+    fireEvent.click(screen.getByRole('button', { name: /open thread for ship the workspace shell this sprint\./i }));
 
     await waitFor(() => {
       expect(api.getChannelThread).toHaveBeenCalledWith(
@@ -177,21 +264,61 @@ describe('App', () => {
       );
     });
 
-    fireEvent.change(screen.getByLabelText(/chat message/i), {
-      target: { value: 'hello channel' },
+    expect(screen.getByText('I can break that into milestones.')).toBeTruthy();
+  });
+
+  it('creates a new channel post and streams the assistant reply only in the thread pane', async () => {
+    window.history.pushState({}, '', '/chat/project-123');
+
+    render(<App />);
+
+    await screen.findByRole('button', {
+      name: /open thread for ship the workspace shell this sprint\./i,
     });
-    fireEvent.click(screen.getByRole('button', { name: /send message/i }));
+
+    fireEvent.change(screen.getByLabelText(/start a post/i), {
+      target: { value: 'Map the rollout by milestone.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /send to general/i }));
 
     await waitFor(() => {
-      expect(screen.getByText('assistant heard: hello channel')).toBeTruthy();
+      expect(api.createChannelPost).toHaveBeenCalledWith(
+        authState.user,
+        'project-123',
+        'channel-general',
+        'Map the rollout by milestone.',
+      );
     });
 
-    expect(api.sendChannelMessage).toHaveBeenCalledWith(
-      authState.user,
-      'project-123',
-      'channel-general',
-      'thread-1',
-      'hello channel',
-    );
+    await waitFor(() => {
+      expect(api.getChannelThread).toHaveBeenCalledWith(
+        authState.user,
+        'project-123',
+        'channel-general',
+        'thread-2',
+      );
+    });
+
+    fireEvent.change(screen.getByLabelText(/reply in thread/i), {
+      target: { value: 'Give me the first step.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /reply in thread/i }));
+
+    await waitFor(() => {
+      expect(api.streamThreadReply).toHaveBeenCalledWith(
+        authState.user,
+        'project-123',
+        'channel-general',
+        'thread-2',
+        'Give me the first step.',
+        expect.objectContaining({
+          onEvent: expect.any(Function),
+        }),
+      );
+    });
+
+    expect(screen.getByText('Working through it.')).toBeTruthy();
+    expect(screen.getByText('Map the rollout by milestone.')).toBeTruthy();
+    expect(screen.queryByText('Working through it. (Give me the first step.)')).toBeTruthy();
   });
 });

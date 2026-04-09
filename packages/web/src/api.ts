@@ -9,6 +9,14 @@ type ResponseMeta = {
   };
 };
 
+export type AccessibleProjectSummary = {
+  id: string;
+  organizationId: string;
+  name: string;
+  slug: string;
+  status: string;
+};
+
 export type BootstrapProjectResponse = {
   projectId: string;
   organizationId: string;
@@ -18,6 +26,7 @@ export type BootstrapProjectResponse = {
     activeAgentVersion: string;
   };
   defaultChannelId: string;
+  project?: AccessibleProjectSummary;
 } & ResponseMeta;
 
 export type AdminTestResponse = {
@@ -36,6 +45,16 @@ export type ChannelSummary = {
   description?: string | null;
   kind?: string;
   isPrivate?: boolean;
+};
+
+export type ChannelFeedPost = {
+  threadId: string;
+  rootMessageId: string;
+  rootMessageText: string;
+  rootMessageRole: string;
+  replyCount: number;
+  lastMessageAt: string | null;
+  createdAt: string;
 };
 
 export type ThreadSummary = {
@@ -59,23 +78,26 @@ export type ThreadDetails = {
   messages: ThreadMessage[];
 } & ResponseMeta;
 
-export type ChatReply = {
-  resourceId: string;
-  workspaceRootPath: string;
-  threadId: string;
-  runId?: string;
-  modelId?: string;
-  text: string;
-} & ResponseMeta;
+export type StreamEvent = {
+  event: string;
+  data: Record<string, unknown>;
+};
+
+async function buildHeaders(user: AuthUser, init?: HeadersInit) {
+  const token = await user.getIdToken();
+
+  return {
+    ...(init ?? {}),
+    authorization: `Bearer ${token}`,
+  };
+}
 
 async function apiFetch<T>(path: string, user: AuthUser, init?: RequestInit): Promise<T> {
-  const token = await user.getIdToken();
   const startedAt = performance.now();
   const response = await fetch(path, {
     ...init,
     headers: {
-      ...(init?.headers ?? {}),
-      authorization: `Bearer ${token}`,
+      ...(await buildHeaders(user, init?.headers)),
       'content-type': 'application/json',
     },
   });
@@ -101,6 +123,25 @@ async function apiFetch<T>(path: string, user: AuthUser, init?: RequestInit): Pr
   } as T;
 }
 
+function parseEventBlock(block: string): StreamEvent | null {
+  const lines = block
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .filter(Boolean);
+
+  if (lines.length === 0) {
+    return null;
+  }
+
+  const event = lines.find((line) => line.startsWith('event:'))?.slice(6).trim() ?? 'message';
+  const dataLine = lines.find((line) => line.startsWith('data:'))?.slice(5).trim() ?? '{}';
+
+  return {
+    event,
+    data: JSON.parse(dataLine) as Record<string, unknown>,
+  };
+}
+
 export async function getMe(user: AuthUser) {
   return apiFetch<{
     uid: string;
@@ -108,6 +149,14 @@ export async function getMe(user: AuthUser) {
     emailVerified: boolean;
     name: string | null;
   } & ResponseMeta>('/api/me', user, { method: 'GET' });
+}
+
+export async function listAccessibleProjects(user: AuthUser) {
+  return apiFetch<{
+    projects: AccessibleProjectSummary[];
+  } & ResponseMeta>('/api/projects', user, {
+    method: 'GET',
+  });
 }
 
 export async function bootstrapProject(user: AuthUser, name: string) {
@@ -152,25 +201,27 @@ export async function createProjectChannel(
   });
 }
 
-export async function listChannelThreads(user: AuthUser, projectId: string, channelId: string) {
+export async function listChannelFeed(user: AuthUser, projectId: string, channelId: string) {
   return apiFetch<{
-    threads: ThreadSummary[];
-  } & ResponseMeta>(`/api/projects/${projectId}/channels/${channelId}/threads`, user, {
+    channel: ChannelSummary;
+    posts: ChannelFeedPost[];
+  } & ResponseMeta>(`/api/projects/${projectId}/channels/${channelId}/feed`, user, {
     method: 'GET',
   });
 }
 
-export async function createChannelThread(
+export async function createChannelPost(
   user: AuthUser,
   projectId: string,
   channelId: string,
-  title?: string,
+  message: string,
 ) {
   return apiFetch<{
     thread: ThreadSummary;
-  } & ResponseMeta>(`/api/projects/${projectId}/channels/${channelId}/threads`, user, {
+    rootMessage: ThreadMessage;
+  } & ResponseMeta>(`/api/projects/${projectId}/channels/${channelId}/posts`, user, {
     method: 'POST',
-    body: JSON.stringify({ title }),
+    body: JSON.stringify({ message }),
   });
 }
 
@@ -189,19 +240,68 @@ export async function getChannelThread(
   );
 }
 
-export async function sendChannelMessage(
+export async function streamThreadReply(
   user: AuthUser,
   projectId: string,
   channelId: string,
   threadId: string,
   message: string,
+  handlers: {
+    onEvent(event: StreamEvent): void;
+  },
 ) {
-  return apiFetch<ChatReply>(
-    `/api/projects/${projectId}/channels/${channelId}/threads/${threadId}/messages`,
-    user,
+  const response = await fetch(
+    `/api/projects/${projectId}/channels/${channelId}/threads/${threadId}/messages/stream`,
     {
       method: 'POST',
+      headers: {
+        ...(await buildHeaders(user)),
+        'content-type': 'application/json',
+      },
       body: JSON.stringify({ message }),
     },
   );
+
+  if (!response.ok) {
+    const contentType = response.headers.get('content-type') ?? '';
+    const payload = contentType.includes('application/json')
+      ? JSON.stringify(await response.json())
+      : await response.text();
+
+    throw new Error(`[${response.status}] ${payload}`);
+  }
+
+  if (!response.body) {
+    throw new Error('Streaming response body was empty.');
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const chunk = await reader.read();
+
+    if (chunk.done) {
+      break;
+    }
+
+    buffer += decoder.decode(chunk.value, { stream: true });
+    const blocks = buffer.split('\n\n');
+    buffer = blocks.pop() ?? '';
+
+    for (const block of blocks) {
+      const event = parseEventBlock(block);
+
+      if (event) {
+        handlers.onEvent(event);
+      }
+    }
+  }
+
+  const trailingEvent = parseEventBlock(buffer.trim());
+
+  if (trailingEvent) {
+    handlers.onEvent(trailingEvent);
+  }
 }

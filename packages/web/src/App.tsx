@@ -2,15 +2,18 @@ import { useEffect, useMemo, useState } from 'react';
 
 import {
   bootstrapProject,
-  createChannelThread,
+  createChannelPost,
   createProjectChannel,
   getChannelThread,
   getMe,
   getWorkspace,
-  listChannelThreads,
+  listAccessibleProjects,
+  listChannelFeed,
   listProjectChannels,
   runAdminTest,
-  sendChannelMessage,
+  streamThreadReply,
+  type AccessibleProjectSummary,
+  type ChannelFeedPost,
   type ChannelSummary,
   type ThreadMessage,
   type ThreadSummary,
@@ -51,39 +54,71 @@ function navigate(path: string) {
   window.dispatchEvent(new PopStateEvent('popstate'));
 }
 
+function mergeProjects(
+  current: AccessibleProjectSummary[],
+  incoming: AccessibleProjectSummary[],
+): AccessibleProjectSummary[] {
+  const map = new Map<string, AccessibleProjectSummary>();
+
+  for (const project of current) {
+    map.set(project.id, project);
+  }
+
+  for (const project of incoming) {
+    map.set(project.id, project);
+  }
+
+  return [...map.values()].sort((left, right) => left.name.localeCompare(right.name));
+}
+
 function formatJson(value: unknown, fallback: string) {
   return value ? JSON.stringify(value, null, 2) : fallback;
+}
+
+function formatReplyCount(replyCount: number) {
+  return `${replyCount} ${replyCount === 1 ? 'reply' : 'replies'}`;
+}
+
+function createOptimisticMessage(role: 'user' | 'assistant', text: string): ThreadMessage {
+  return {
+    id: `${role}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    role,
+    text,
+    createdAt: new Date().toISOString(),
+  };
 }
 
 export function App() {
   const [route, setRoute] = useState<RouteState>(() => readRoute(window.location.pathname));
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [projectId, setProjectId] = useState('');
   const [projectName, setProjectName] = useState('Demo Project');
-  const [message, setMessage] = useState('hello');
-  const [meResult, setMeResult] = useState<string>('');
-  const [workspaceResult, setWorkspaceResult] = useState<string>('');
-  const [adminResult, setAdminResult] = useState<string>('');
+  const [projectId, setProjectId] = useState('');
+  const [adminMessage, setAdminMessage] = useState('hello');
+  const [meResult, setMeResult] = useState('');
+  const [workspaceResult, setWorkspaceResult] = useState('');
+  const [adminResult, setAdminResult] = useState('');
   const [lastError, setLastError] = useState('');
   const [isLoading, setIsLoading] = useState<string | null>(null);
 
+  const [projects, setProjects] = useState<AccessibleProjectSummary[]>([]);
   const [channels, setChannels] = useState<ChannelSummary[]>([]);
   const [selectedChannelId, setSelectedChannelId] = useState('');
   const [newChannelName, setNewChannelName] = useState('engineering');
-  const [threads, setThreads] = useState<ThreadSummary[]>([]);
-  const [selectedThreadId, setSelectedThreadId] = useState('');
-  const [threadTitle, setThreadTitle] = useState('New thread');
-  const [messages, setMessages] = useState<ThreadMessage[]>([]);
-  const [chatMessage, setChatMessage] = useState('hello channel');
-  const [chatMeta, setChatMeta] = useState<string>('');
+  const [feedPosts, setFeedPosts] = useState<ChannelFeedPost[]>([]);
+  const [newPostMessage, setNewPostMessage] = useState('');
+  const [selectedThread, setSelectedThread] = useState<ThreadSummary | null>(null);
+  const [threadMessages, setThreadMessages] = useState<ThreadMessage[]>([]);
+  const [replyMessage, setReplyMessage] = useState('');
+  const [streamingReply, setStreamingReply] = useState('');
 
+  const currentProjectId = route.name === 'chat' ? route.projectId : projectId;
   const selectedChannel = useMemo(
     () => channels.find((channel) => channel.id === selectedChannelId) ?? null,
     [channels, selectedChannelId],
   );
-  const selectedThread = useMemo(
-    () => threads.find((thread) => thread.id === selectedThreadId) ?? null,
-    [threads, selectedThreadId],
+  const currentProject = useMemo(
+    () => projects.find((project) => project.id === currentProjectId) ?? null,
+    [projects, currentProjectId],
   );
 
   useEffect(() => {
@@ -104,13 +139,16 @@ export function App() {
   useEffect(() => {
     if (!user) {
       setMeResult('');
+      setProjects([]);
       setChannels([]);
-      setThreads([]);
-      setMessages([]);
+      setFeedPosts([]);
+      setSelectedThread(null);
+      setThreadMessages([]);
       return;
     }
 
     void handleGetMe();
+    void handleLoadProjects();
   }, [user]);
 
   useEffect(() => {
@@ -119,6 +157,9 @@ export function App() {
     }
 
     setProjectId(route.projectId);
+    setSelectedThread(null);
+    setThreadMessages([]);
+    setStreamingReply('');
   }, [route]);
 
   useEffect(() => {
@@ -134,11 +175,17 @@ export function App() {
       return;
     }
 
-    void handleLoadThreads(route.projectId, selectedChannelId);
+    setSelectedThread(null);
+    setThreadMessages([]);
+    setStreamingReply('');
+    void handleLoadFeed(route.projectId, selectedChannelId);
   }, [user, route, selectedChannelId]);
 
   async function handleGetMe() {
-    if (!user) return;
+    if (!user) {
+      return;
+    }
+
     setIsLoading('me');
     setLastError('');
     try {
@@ -151,14 +198,38 @@ export function App() {
     }
   }
 
+  async function handleLoadProjects() {
+    if (!user) {
+      return;
+    }
+
+    setIsLoading('projects');
+    setLastError('');
+    try {
+      const result = await listAccessibleProjects(user);
+      setProjects((current) => mergeProjects(current, result.projects));
+    } catch (error) {
+      setLastError(String(error));
+    } finally {
+      setIsLoading(null);
+    }
+  }
+
   async function handleBootstrapProject() {
-    if (!user) return;
+    if (!user) {
+      return;
+    }
+
     setIsLoading('bootstrap');
     setLastError('');
     try {
       const result = await bootstrapProject(user, projectName);
+      const bootstrappedProject = result.project;
       setProjectId(result.projectId);
       setWorkspaceResult(JSON.stringify(result, null, 2));
+      if (bootstrappedProject) {
+        setProjects((current) => mergeProjects(current, [bootstrappedProject]));
+      }
     } catch (error) {
       setLastError(String(error));
     } finally {
@@ -167,7 +238,10 @@ export function App() {
   }
 
   async function handleGetWorkspace() {
-    if (!user || !projectId) return;
+    if (!user || !projectId) {
+      return;
+    }
+
     setIsLoading('workspace');
     setLastError('');
     try {
@@ -181,11 +255,14 @@ export function App() {
   }
 
   async function handleRunAdminTest() {
-    if (!user || !projectId) return;
+    if (!user || !projectId) {
+      return;
+    }
+
     setIsLoading('admin-test');
     setLastError('');
     try {
-      const result = await runAdminTest(user, projectId, message);
+      const result = await runAdminTest(user, projectId, adminMessage);
       setAdminResult(JSON.stringify(result, null, 2));
     } catch (error) {
       setLastError(String(error));
@@ -194,18 +271,23 @@ export function App() {
     }
   }
 
-  async function handleLoadChannels(currentProjectId: string) {
-    if (!user) return;
+  async function handleLoadChannels(nextProjectId: string) {
+    if (!user) {
+      return;
+    }
+
     setIsLoading('channels');
     setLastError('');
     try {
-      const result = await listProjectChannels(user, currentProjectId);
+      const result = await listProjectChannels(user, nextProjectId);
       setChannels(result.channels);
-      setSelectedChannelId((current) =>
-        current && result.channels.some((channel) => channel.id === current)
-          ? current
-          : (result.channels[0]?.id ?? ''),
-      );
+      setSelectedChannelId((current) => {
+        if (current && result.channels.some((channel) => channel.id === current)) {
+          return current;
+        }
+
+        return result.channels[0]?.id ?? '';
+      });
     } catch (error) {
       setLastError(String(error));
     } finally {
@@ -222,11 +304,14 @@ export function App() {
     setLastError('');
     try {
       const result = await createProjectChannel(user, route.projectId, newChannelName.trim());
-      setChannels((current) => [...current, result.channel].sort((left, right) => left.name.localeCompare(right.name)));
+      setChannels((current) =>
+        [...current, result.channel].sort((left, right) => left.name.localeCompare(right.name)),
+      );
       setSelectedChannelId(result.channel.id);
-      setThreads([]);
-      setSelectedThreadId('');
-      setMessages([]);
+      setFeedPosts([]);
+      setSelectedThread(null);
+      setThreadMessages([]);
+      setStreamingReply('');
       setNewChannelName('');
     } catch (error) {
       setLastError(String(error));
@@ -235,44 +320,16 @@ export function App() {
     }
   }
 
-  async function handleLoadThreads(currentProjectId: string, channelId: string) {
-    if (!user) return;
-    setIsLoading('threads');
-    setLastError('');
-    try {
-      const result = await listChannelThreads(user, currentProjectId, channelId);
-      setThreads(result.threads);
-      setSelectedThreadId((current) =>
-        current && result.threads.some((thread) => thread.id === current)
-          ? current
-          : '',
-      );
-      setMessages((current) => (selectedThreadId ? current : []));
-    } catch (error) {
-      setLastError(String(error));
-    } finally {
-      setIsLoading(null);
-    }
-  }
-
-  async function handleCreateThread() {
-    if (!user || route.name !== 'chat' || !route.projectId || !selectedChannelId) {
+  async function handleLoadFeed(nextProjectId: string, channelId: string) {
+    if (!user) {
       return;
     }
 
-    setIsLoading('create-thread');
+    setIsLoading('feed');
     setLastError('');
     try {
-      const result = await createChannelThread(
-        user,
-        route.projectId,
-        selectedChannelId,
-        threadTitle.trim() || 'New thread',
-      );
-      setThreads((current) => [result.thread, ...current.filter((thread) => thread.id !== result.thread.id)]);
-      setSelectedThreadId(result.thread.id);
-      setMessages([]);
-      setThreadTitle('New thread');
+      const result = await listChannelFeed(user, nextProjectId, channelId);
+      setFeedPosts(result.posts);
     } catch (error) {
       setLastError(String(error));
     } finally {
@@ -280,18 +337,18 @@ export function App() {
     }
   }
 
-  async function handleSelectThread(thread: ThreadSummary) {
-    if (!user || route.name !== 'chat') {
+  async function handleOpenThread(threadId: string) {
+    if (!user || route.name !== 'chat' || !route.projectId || !selectedChannelId) {
       return;
     }
 
     setIsLoading('thread');
     setLastError('');
     try {
-      const result = await getChannelThread(user, route.projectId, thread.channelId, thread.id);
-      setSelectedThreadId(thread.id);
-      setMessages(result.messages);
-      setChatMeta(JSON.stringify(result.thread, null, 2));
+      const result = await getChannelThread(user, route.projectId, selectedChannelId, threadId);
+      setSelectedThread(result.thread);
+      setThreadMessages(result.messages);
+      setStreamingReply('');
     } catch (error) {
       setLastError(String(error));
     } finally {
@@ -299,46 +356,114 @@ export function App() {
     }
   }
 
-  async function handleSendMessage() {
-    if (!user || route.name !== 'chat' || !route.projectId || !selectedChannelId || !selectedThreadId) {
+  async function handleCreatePost() {
+    if (!user || route.name !== 'chat' || !route.projectId || !selectedChannelId) {
       return;
     }
 
-    const outboundMessage = chatMessage.trim();
+    const message = newPostMessage.trim();
 
-    if (!outboundMessage) {
+    if (!message) {
       return;
     }
 
-    setIsLoading('chat-send');
+    setIsLoading('create-post');
     setLastError('');
     try {
-      const userMessage: ThreadMessage = {
-        id: `local-user-${Date.now()}`,
-        role: 'user',
-        text: outboundMessage,
-        createdAt: new Date().toISOString(),
-      };
-      setMessages((current) => [...current, userMessage]);
+      const result = await createChannelPost(user, route.projectId, selectedChannelId, message);
+      setFeedPosts((current) => [
+        {
+          threadId: result.thread.id,
+          rootMessageId: result.rootMessage.id,
+          rootMessageText: result.rootMessage.text,
+          rootMessageRole: result.rootMessage.role,
+          replyCount: 0,
+          lastMessageAt: result.thread.lastMessageAt,
+          createdAt: result.rootMessage.createdAt,
+        },
+        ...current.filter((post) => post.threadId !== result.thread.id),
+      ]);
+      setNewPostMessage('');
+      await handleOpenThread(result.thread.id);
+    } catch (error) {
+      setLastError(String(error));
+    } finally {
+      setIsLoading(null);
+    }
+  }
 
-      const result = await sendChannelMessage(
+  async function handleReplyInThread() {
+    if (!user || route.name !== 'chat' || !route.projectId || !selectedChannelId || !selectedThread) {
+      return;
+    }
+
+    const message = replyMessage.trim();
+
+    if (!message) {
+      return;
+    }
+
+    setIsLoading('reply');
+    setLastError('');
+    setThreadMessages((current) => [...current, createOptimisticMessage('user', message)]);
+    setReplyMessage('');
+    setStreamingReply('');
+
+    try {
+      await streamThreadReply(
         user,
         route.projectId,
         selectedChannelId,
-        selectedThreadId,
-        outboundMessage,
-      );
-      setMessages((current) => [
-        ...current,
+        selectedThread.id,
+        message,
         {
-          id: `assistant-${result.runId ?? Date.now()}`,
-          role: 'assistant',
-          text: result.text,
-          createdAt: new Date().toISOString(),
+          onEvent: (event) => {
+            if (event.event === 'token') {
+              setStreamingReply((current) => `${current}${String(event.data.text ?? '')}`);
+            }
+
+            if (event.event === 'message_saved') {
+              setThreadMessages((current) => [
+                ...current,
+                {
+                  id: String(event.data.id ?? `assistant-${Date.now()}`),
+                  role: String(event.data.role ?? 'assistant'),
+                  text: String(event.data.text ?? ''),
+                  createdAt: String(event.data.createdAt ?? new Date().toISOString()),
+                },
+              ]);
+            }
+
+            if (event.event === 'thread_updated') {
+              const nextLastMessageAt =
+                typeof event.data.lastMessageAt === 'string' ? event.data.lastMessageAt : null;
+
+              if (nextLastMessageAt) {
+                setFeedPosts((current) =>
+                  current.map((post) =>
+                    post.threadId === selectedThread.id
+                      ? {
+                          ...post,
+                          lastMessageAt: nextLastMessageAt,
+                          replyCount: post.replyCount + 1,
+                        }
+                      : post,
+                  ),
+                );
+                setSelectedThread((current) =>
+                  current
+                    ? {
+                        ...current,
+                        lastMessageAt: nextLastMessageAt,
+                        updatedAt: nextLastMessageAt,
+                      }
+                    : current,
+                );
+              }
+            }
+          },
         },
-      ]);
-      setChatMeta(JSON.stringify(result, null, 2));
-      setChatMessage('');
+      );
     } catch (error) {
       setLastError(String(error));
     } finally {
@@ -348,28 +473,42 @@ export function App() {
 
   if (route.name === 'chat') {
     return (
-      <main className="chat-shell">
-        <section className="panel chat-sidebar">
-          <p className="eyebrow">Hono Workspace</p>
-          <h1>Project Chat</h1>
-          <p className="lede">
-            Persisted project conversations grouped by channel, with multiple threads per channel.
-          </p>
+      <main className="workspace-shell">
+        <aside className="workspace-rail">
+          <div className="workspace-brand">
+            <p className="eyebrow">Hono Workspace</p>
+            <h1>Workspaces</h1>
+          </div>
 
-          <div className="control-row">
-            <button onClick={() => navigate('/admin/test')}>Open Admin Test</button>
+          <nav className="workspace-list" aria-label="Projects">
+            {projects.map((project) => (
+              <button
+                key={project.id}
+                className={project.id === route.projectId ? 'workspace-button workspace-button-active' : 'workspace-button'}
+                onClick={() => navigate(`/chat/${project.id}`)}
+              >
+                <span className="workspace-button-name">{project.name}</span>
+                <span className="workspace-button-slug">{project.slug}</span>
+              </button>
+            ))}
+          </nav>
+
+          <div className="workspace-rail-actions">
+            <button onClick={() => navigate('/admin/test')}>Admin Test Console</button>
             <button onClick={() => void signOutUser()} disabled={!user}>
               Sign out
             </button>
           </div>
+        </aside>
+
+        <aside className="channels-sidebar">
+          <header className="sidebar-header">
+            <p className="eyebrow">Project</p>
+            <h2>{currentProject?.name ?? route.projectId}</h2>
+          </header>
 
           <label className="field">
-            <span>Project ID</span>
-            <input value={route.projectId} readOnly />
-          </label>
-
-          <label className="field">
-            <span>New channel</span>
+            <span>Create channel</span>
             <input
               value={newChannelName}
               onChange={(event) => setNewChannelName(event.target.value)}
@@ -377,125 +516,145 @@ export function App() {
             />
           </label>
 
-          <div className="control-row">
-            <button
-              onClick={() => void handleCreateChannel()}
-              disabled={!user || isLoading === 'create-channel'}
-            >
-              Create channel
-            </button>
-          </div>
+          <button
+            onClick={() => void handleCreateChannel()}
+            disabled={!user || !route.projectId || isLoading === 'create-channel'}
+          >
+            Add channel
+          </button>
 
-          <div className="list-block">
-            <h2>Channels</h2>
-            <div className="list-column">
-              {channels.map((channel) => (
-                <button
-                  key={channel.id}
-                  className={channel.id === selectedChannelId ? 'list-button list-button-active' : 'list-button'}
-                  onClick={() => setSelectedChannelId(channel.id)}
-                >
-                  {channel.name}
-                </button>
-              ))}
+          <nav className="channel-list" aria-label="Channels">
+            {channels.map((channel) => (
+              <button
+                key={channel.id}
+                className={channel.id === selectedChannelId ? 'channel-button channel-button-active' : 'channel-button'}
+                onClick={() => setSelectedChannelId(channel.id)}
+              >
+                <span className="channel-hash">#</span>
+                <span>{channel.name}</span>
+              </button>
+            ))}
+          </nav>
+        </aside>
+
+        <section className="channel-feed">
+          <header className="channel-feed-header">
+            <div>
+              <p className="eyebrow">Channel</p>
+              <h2>#{selectedChannel?.name ?? 'Select a channel'}</h2>
             </div>
-          </div>
-
-          <label className="field">
-            <span>New thread title</span>
-            <input
-              value={threadTitle}
-              onChange={(event) => setThreadTitle(event.target.value)}
-              placeholder="New thread"
-            />
-          </label>
-
-          <div className="control-row">
-            <button
-              onClick={() => void handleCreateThread()}
-              disabled={!user || !selectedChannelId || isLoading === 'create-thread'}
-            >
-              Create thread
-            </button>
-          </div>
-
-          <div className="list-block">
-            <h2>Threads</h2>
-            <div className="list-column">
-              {threads.map((thread) => (
-                <button
-                  key={thread.id}
-                  className={thread.id === selectedThreadId ? 'list-button list-button-active' : 'list-button'}
-                  onClick={() => void handleSelectThread(thread)}
-                >
-                  {thread.title || 'Untitled thread'}
-                </button>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section className="panel chat-main">
-          <article className="message-panel">
-            <h2>{selectedThread?.title || 'Select a thread'}</h2>
-            <p className="lede">
-              {selectedChannel ? `Channel: ${selectedChannel.name}` : 'Choose a channel to start.'}
+            <p className="channel-status">
+              {isLoading === 'feed' ? 'Refreshing feed...' : 'Thread roots appear here.'}
             </p>
-            <div className="message-list">
-              {messages.map((entry) => (
-                <div key={entry.id} className={`message-bubble message-${entry.role}`}>
-                  <p className="message-role">{entry.role}</p>
-                  <p>{entry.text}</p>
-                </div>
-              ))}
-              {messages.length === 0 ? <p className="empty-state">No messages yet.</p> : null}
-            </div>
+          </header>
 
+          <div className="feed-list">
+            {feedPosts.length === 0 ? (
+              <p className="empty-state">No channel posts yet.</p>
+            ) : (
+              feedPosts.map((post) => (
+                <article key={post.threadId} className="feed-card">
+                  <button
+                    className="feed-card-button"
+                    onClick={() => void handleOpenThread(post.threadId)}
+                    aria-label={`Open thread for ${post.rootMessageText}`}
+                  >
+                    <p className="feed-card-text">{post.rootMessageText}</p>
+                    <div className="feed-card-meta">
+                      <span>{formatReplyCount(post.replyCount)}</span>
+                      <span>{post.lastMessageAt ? new Date(post.lastMessageAt).toLocaleString() : 'Just now'}</span>
+                    </div>
+                  </button>
+                </article>
+              ))
+            )}
+          </div>
+
+          <div className="composer-panel">
             <label className="field">
-              <span>Chat Message</span>
+              <span>Start a post</span>
               <textarea
-                aria-label="Chat Message"
-                value={chatMessage}
-                onChange={(event) => setChatMessage(event.target.value)}
+                aria-label="Start a post"
+                value={newPostMessage}
+                onChange={(event) => setNewPostMessage(event.target.value)}
                 rows={4}
+                placeholder={`Share an update in #${selectedChannel?.name ?? 'channel'}`}
               />
             </label>
 
-            <div className="control-row">
-              <button
-                onClick={() => void handleSendMessage()}
-                disabled={!user || !selectedThreadId || isLoading === 'chat-send'}
-              >
-                Send message
-              </button>
-            </div>
-          </article>
-
-          <article>
-            <h2>Thread Metadata</h2>
-            <pre>{chatMeta || 'No thread metadata yet.'}</pre>
-          </article>
-          <article>
-            <h2>Profile</h2>
-            <pre>{meResult || 'No profile request yet.'}</pre>
-          </article>
-          <article>
-            <h2>Last Error</h2>
-            <pre>{lastError || 'No errors.'}</pre>
-          </article>
+            <button
+              onClick={() => void handleCreatePost()}
+              disabled={!user || !selectedChannelId || isLoading === 'create-post'}
+            >
+              {`Send to ${selectedChannel?.name ?? 'channel'}`}
+            </button>
+          </div>
         </section>
+
+        <aside className="thread-drawer">
+          <header className="thread-header">
+            <p className="eyebrow">Thread</p>
+            <h2>{selectedThread ? 'Conversation' : 'Select a post'}</h2>
+            <p className="thread-subtitle">
+              {selectedThread
+                ? 'Replies stream here while the channel feed stays stable.'
+                : 'Choose a feed post to open its thread.'}
+            </p>
+          </header>
+
+          <div className="thread-messages">
+            {threadMessages.length === 0 ? (
+              <p className="empty-state">No thread selected.</p>
+            ) : (
+              threadMessages.map((entry) => (
+                <article key={entry.id} className={`thread-message thread-message-${entry.role}`}>
+                  <p className="thread-message-role">{entry.role}</p>
+                  <p>{entry.text}</p>
+                </article>
+              ))
+            )}
+            {streamingReply ? (
+              <article className="thread-message thread-message-assistant thread-message-streaming">
+                <p className="thread-message-role">assistant</p>
+                <p>{streamingReply}</p>
+              </article>
+            ) : null}
+          </div>
+
+          <label className="field">
+            <span>Reply in thread</span>
+            <textarea
+              aria-label="Reply in thread"
+              value={replyMessage}
+              onChange={(event) => setReplyMessage(event.target.value)}
+              rows={4}
+              disabled={!selectedThread}
+            />
+          </label>
+
+          <button
+            onClick={() => void handleReplyInThread()}
+            disabled={!selectedThread || isLoading === 'reply'}
+          >
+            Reply in thread
+          </button>
+
+          <div className="thread-debug">
+            <h3>Status</h3>
+            <p>{lastError || 'Connected'}</p>
+          </div>
+        </aside>
       </main>
     );
   }
 
   return (
-    <main className="app-shell">
-      <section className="panel">
+    <main className="admin-shell">
+      <section className="panel admin-panel">
         <p className="eyebrow">Hono Workspace</p>
         <h1>Admin Test Console</h1>
         <p className="lede">
-          Authenticate with Firebase, create a project, inspect the workspace route, and run the
-          protected admin test endpoint.
+          Authenticate with Firebase, provision a workspace, and jump into the Slack-shaped chat surface.
         </p>
 
         <div className="control-row">
@@ -527,7 +686,14 @@ export function App() {
           >
             Create Demo Project
           </button>
-          <button onClick={() => navigate(projectId ? `/chat/${projectId}` : '/chat/project-id')} disabled={!projectId}>
+          <button
+            onClick={() => {
+              if (projectId) {
+                navigate(`/chat/${projectId}`);
+              }
+            }}
+            disabled={!projectId}
+          >
             Open Chat Workspace
           </button>
         </div>
@@ -550,9 +716,9 @@ export function App() {
           <span>Message</span>
           <textarea
             aria-label="Message"
-            value={message}
-            onChange={(event) => setMessage(event.target.value)}
-            rows={5}
+            value={adminMessage}
+            onChange={(event) => setAdminMessage(event.target.value)}
+            rows={4}
           />
         </label>
 
@@ -561,27 +727,42 @@ export function App() {
             onClick={() => void handleRunAdminTest()}
             disabled={!user || !projectId || isLoading === 'admin-test'}
           >
-            Run admin test
+            Run Admin Test
           </button>
         </div>
       </section>
 
       <section className="panel panel-output">
         <article>
+          <h2>Projects</h2>
+          <div className="workspace-list admin-project-list" aria-label="Projects">
+            {projects.map((project) => (
+              <button
+                key={project.id}
+                className={project.id === projectId ? 'workspace-button workspace-button-active' : 'workspace-button'}
+                onClick={() => setProjectId(project.id)}
+              >
+                <span className="workspace-button-name">{project.name}</span>
+                <span className="workspace-button-slug">{project.slug}</span>
+              </button>
+            ))}
+          </div>
+        </article>
+        <article>
           <h2>Profile</h2>
           <pre>{meResult || 'No profile request yet.'}</pre>
         </article>
         <article>
           <h2>Workspace</h2>
-          <pre>{workspaceResult || 'No workspace response yet.'}</pre>
+          <pre>{workspaceResult || 'No workspace request yet.'}</pre>
         </article>
         <article>
           <h2>Admin Test</h2>
-          <pre>{adminResult || 'No admin test run yet.'}</pre>
+          <pre>{adminResult || 'No admin test response yet.'}</pre>
         </article>
         <article>
           <h2>Last Error</h2>
-          <pre>{lastError || 'No errors.'}</pre>
+          <pre>{formatJson(lastError, 'No errors.')}</pre>
         </article>
       </section>
     </main>

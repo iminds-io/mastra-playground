@@ -2,20 +2,22 @@ import { describe, expect, it } from 'vitest';
 
 import { createApp } from '../../src/server/factory';
 
+const verifiedPrincipal = {
+  uid: 'firebase-user-1',
+  email: 'user@example.com',
+  emailVerified: true,
+  name: 'Demo User',
+  picture: null,
+  authTime: 123,
+  rawClaims: {},
+};
+
 describe('authenticated routes', () => {
   it('returns the verified principal on /api/me', async () => {
     const app = await createApp({
       tokenVerifier: {
         async verifyIdToken() {
-          return {
-            uid: 'firebase-user-1',
-            email: 'user@example.com',
-            emailVerified: true,
-            name: 'Demo User',
-            picture: null,
-            authTime: 123,
-            rawClaims: {},
-          };
+          return verifiedPrincipal;
         },
       },
       executeProjectAgent: async () => ({
@@ -43,19 +45,51 @@ describe('authenticated routes', () => {
     });
   });
 
+  it('lists accessible projects for the authenticated principal', async () => {
+    const app = await createApp({
+      tokenVerifier: {
+        async verifyIdToken() {
+          return verifiedPrincipal;
+        },
+      },
+      listAccessibleProjects: async () => ({
+        projects: [
+          {
+            id: 'project-1',
+            organizationId: 'org-1',
+            name: 'Alpha Workspace',
+            slug: 'alpha-workspace',
+            status: 'active',
+          },
+        ],
+      }),
+    });
+
+    const response = await app.request('/api/projects', {
+      headers: {
+        authorization: 'Bearer demo-token',
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      projects: [
+        {
+          id: 'project-1',
+          organizationId: 'org-1',
+          name: 'Alpha Workspace',
+          slug: 'alpha-workspace',
+          status: 'active',
+        },
+      ],
+    });
+  });
+
   it('executes the project wrapper for authenticated agent runs', async () => {
     const app = await createApp({
       tokenVerifier: {
         async verifyIdToken() {
-          return {
-            uid: 'firebase-user-1',
-            email: 'user@example.com',
-            emailVerified: true,
-            name: 'Demo User',
-            picture: null,
-            authTime: 123,
-            rawClaims: {},
-          };
+          return verifiedPrincipal;
         },
       },
       executeProjectAgent: async ({ projectId, message }) => ({
@@ -92,15 +126,7 @@ describe('authenticated routes', () => {
     const app = await createApp({
       tokenVerifier: {
         async verifyIdToken() {
-          return {
-            uid: 'firebase-user-1',
-            email: 'user@example.com',
-            emailVerified: true,
-            name: 'Demo User',
-            picture: null,
-            authTime: 123,
-            rawClaims: {},
-          };
+          return verifiedPrincipal;
         },
       },
       executeProjectAgent: async () => {

@@ -3,15 +3,19 @@ import { MastraServer } from '@mastra/hono';
 
 import {
   bootstrapProjectForPrincipal,
+  createChannelPostForPrincipal,
   createProjectChannelForPrincipal,
   createChannelThreadForPrincipal,
   createFirebaseTokenVerifier,
   createMastra,
   executeProjectAgent,
   getChannelThreadForPrincipal,
+  listChannelFeedForPrincipal,
+  listAccessibleProjectsForPrincipal,
   listChannelThreadsForPrincipal,
   listProjectChannelsForPrincipal,
   sendChannelMessageForPrincipal,
+  streamChannelReplyForPrincipal,
 } from '@hono-workspace/platform';
 
 import { createAuthMiddleware, type AppBindings } from '../middleware/auth';
@@ -31,6 +35,11 @@ type ExecuteProjectAgent = (input: {
   modelId?: string;
   text: string;
 }>;
+
+type StreamEvent = {
+  event: string;
+  data: Record<string, unknown>;
+};
 
 type AppFactoryParams = {
   databaseUrl?: string;
@@ -56,11 +65,29 @@ type AppFactoryParams = {
     projectId: string;
     organizationId: string;
     workspaceRootPath: string;
+    project?: {
+      id: string;
+      organizationId: string;
+      name: string;
+      slug: string;
+      status: string;
+    };
     binding: {
       activeAgentRef: string;
       activeAgentVersion: string;
     };
     defaultChannelId: string;
+  }>;
+  listAccessibleProjects?: (input: {
+    firebaseUid: string;
+  }) => Promise<{
+    projects: Array<{
+      id: string;
+      organizationId: string;
+      name: string;
+      slug: string;
+      status: string;
+    }>;
   }>;
   listProjectChannels?: (input: {
     firebaseUid: string;
@@ -85,6 +112,47 @@ type AppFactoryParams = {
       description?: string | null;
       kind?: string;
       isPrivate?: boolean;
+    };
+  }>;
+  listChannelFeed?: (input: {
+    firebaseUid: string;
+    projectId: string;
+    channelId: string;
+  }) => Promise<{
+    channel: {
+      id: string;
+      name: string;
+      slug: string;
+    };
+    posts: Array<{
+      threadId: string;
+      rootMessageId: string;
+      rootMessageText: string;
+      rootMessageRole: string;
+      replyCount: number;
+      lastMessageAt: string | null;
+      createdAt: string;
+    }>;
+  }>;
+  createChannelPost?: (input: {
+    firebaseUid: string;
+    projectId: string;
+    channelId: string;
+    message: string;
+  }) => Promise<{
+    thread: {
+      id: string;
+      channelId: string;
+      title: string | null;
+      lastMessageAt?: string | null;
+      createdAt?: string;
+      updatedAt?: string;
+    };
+    rootMessage: {
+      id: string;
+      role: string;
+      text: string;
+      createdAt: string;
     };
   }>;
   listChannelThreads?: (input: {
@@ -151,7 +219,49 @@ type AppFactoryParams = {
     modelId?: string;
     text: string;
   }>;
+  streamChannelReply?: (input: {
+    firebaseUid: string;
+    projectId: string;
+    channelId: string;
+    threadId: string;
+    message?: string;
+  }) => AsyncIterable<StreamEvent> | Promise<AsyncIterable<StreamEvent>>;
 };
+
+function createSseResponse(stream: AsyncIterable<StreamEvent>) {
+  const encoder = new TextEncoder();
+
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      async start(controller) {
+        try {
+          for await (const chunk of stream) {
+            controller.enqueue(
+              encoder.encode(`event: ${chunk.event}\ndata: ${JSON.stringify(chunk.data)}\n\n`),
+            );
+          }
+        } catch (error) {
+          controller.enqueue(
+            encoder.encode(
+              `event: error\ndata: ${JSON.stringify({
+                error: error instanceof Error ? error.message : 'Internal Server Error',
+              })}\n\n`,
+            ),
+          );
+        } finally {
+          controller.close();
+        }
+      },
+    }),
+    {
+      headers: {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-cache, no-transform',
+        connection: 'keep-alive',
+      },
+    },
+  );
+}
 
 export async function createApp(params: AppFactoryParams = {}) {
   const app = new Hono<AppBindings>();
@@ -178,6 +288,14 @@ export async function createApp(params: AppFactoryParams = {}) {
   app.get('/ready', (c) => c.json({ ok: true }));
   app.use('/api/*', auth);
   app.route('/api', meRoutes);
+  app.get('/api/projects', async (c) => {
+    const principal = c.get('principal');
+    const result = await (params.listAccessibleProjects ?? listAccessibleProjectsForPrincipal)({
+      firebaseUid: principal.uid,
+    });
+
+    return c.json(result);
+  });
   app.route('/api/projects', projectsRoutes);
   app.post('/api/dev/bootstrap-project', async (c) => {
     const principal = c.get('principal');
@@ -231,6 +349,30 @@ export async function createApp(params: AppFactoryParams = {}) {
 
     return c.json(result);
   });
+  app.get('/api/projects/:projectId/channels/:channelId/feed', async (c) => {
+    const principal = c.get('principal');
+    const result = await (params.listChannelFeed ??
+      ((input) => listChannelFeedForPrincipal(input, { mastra })))({
+      firebaseUid: principal.uid,
+      projectId: c.req.param('projectId'),
+      channelId: c.req.param('channelId'),
+    });
+
+    return c.json(result);
+  });
+  app.post('/api/projects/:projectId/channels/:channelId/posts', async (c) => {
+    const principal = c.get('principal');
+    const body = await c.req.json<{ message?: string }>();
+    const result = await (params.createChannelPost ??
+      ((input) => createChannelPostForPrincipal(input, { mastra })))({
+      firebaseUid: principal.uid,
+      projectId: c.req.param('projectId'),
+      channelId: c.req.param('channelId'),
+      message: body.message ?? '',
+    });
+
+    return c.json(result);
+  });
   app.get('/api/projects/:projectId/channels/:channelId/threads', async (c) => {
     const principal = c.get('principal');
     const result = await (params.listChannelThreads ??
@@ -280,6 +422,21 @@ export async function createApp(params: AppFactoryParams = {}) {
     });
 
     return c.json(result);
+  });
+  app.post('/api/projects/:projectId/channels/:channelId/threads/:threadId/messages/stream', async (c) => {
+    const principal = c.get('principal');
+    const body = await c.req.json<{ message?: string }>();
+    const streamInput = {
+      firebaseUid: principal.uid,
+      projectId: c.req.param('projectId'),
+      channelId: c.req.param('channelId'),
+      threadId: c.req.param('threadId'),
+      ...(typeof body.message === 'string' ? { message: body.message } : {}),
+    };
+    const stream = await (params.streamChannelReply ??
+      ((input) => streamChannelReplyForPrincipal(input, { mastra })))(streamInput);
+
+    return createSseResponse(stream);
   });
 
   const server = new MastraServer({ app, mastra });

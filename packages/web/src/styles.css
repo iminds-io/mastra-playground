@@ -3,11 +3,12 @@
     "IBM Plex Sans",
     "Helvetica Neue",
     sans-serif;
-  color: #f3efe6;
+  color: #f4f1ea;
   background:
-    radial-gradient(circle at top left, rgba(222, 119, 67, 0.24), transparent 32%),
-    radial-gradient(circle at top right, rgba(88, 124, 255, 0.2), transparent 30%),
-    #101317;
+    radial-gradient(circle at top left, rgba(53, 145, 255, 0.18), transparent 28%),
+    radial-gradient(circle at bottom right, rgba(255, 145, 77, 0.14), transparent 26%),
+    #17181d;
+  color-scheme: dark;
 }
 
 * {
@@ -27,11 +28,19 @@ textarea {
 
 button {
   border: 0;
-  border-radius: 999px;
-  padding: 0.75rem 1.2rem;
-  background: #f3efe6;
-  color: #101317;
+  border-radius: 0.95rem;
+  padding: 0.75rem 1rem;
+  background: #f4f1ea;
+  color: #17181d;
   cursor: pointer;
+  transition:
+    background 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
+}
+
+button:hover:not(:disabled) {
+  transform: translateY(-1px);
 }
 
 button:disabled {
@@ -44,10 +53,14 @@ textarea,
 pre {
   width: 100%;
   border-radius: 1rem;
-  border: 1px solid rgba(243, 239, 230, 0.15);
-  background: rgba(16, 19, 23, 0.6);
+  border: 1px solid rgba(244, 241, 234, 0.08);
+  background: rgba(18, 20, 25, 0.92);
   color: inherit;
-  padding: 0.9rem 1rem;
+  padding: 0.95rem 1rem;
+}
+
+textarea {
+  resize: vertical;
 }
 
 pre {
@@ -56,136 +69,254 @@ pre {
   white-space: pre-wrap;
 }
 
-.app-shell {
-  display: grid;
-  gap: 1.5rem;
-  grid-template-columns: minmax(320px, 420px) minmax(320px, 1fr);
-  padding: 2rem;
-}
-
-.chat-shell {
-  display: grid;
-  gap: 1.5rem;
-  grid-template-columns: minmax(280px, 360px) minmax(420px, 1fr);
-  padding: 2rem;
-}
-
-.panel {
-  backdrop-filter: blur(18px);
-  background: rgba(14, 18, 22, 0.76);
-  border: 1px solid rgba(243, 239, 230, 0.08);
-  border-radius: 1.5rem;
-  padding: 1.5rem;
-}
-
-.panel-output {
-  display: grid;
-  gap: 1rem;
-}
-
 .eyebrow {
   margin: 0;
+  color: #f4a261;
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  color: #e28b56;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
 }
 
-.lede {
-  color: rgba(243, 239, 230, 0.74);
-  line-height: 1.5;
+.lede,
+.thread-subtitle,
+.channel-status,
+.workspace-button-slug,
+.empty-state {
+  color: rgba(244, 241, 234, 0.68);
 }
 
 .field {
   display: grid;
-  gap: 0.45rem;
-  margin-top: 1rem;
+  gap: 0.5rem;
 }
 
 .control-row {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
-  margin-top: 1rem;
 }
 
-.chat-sidebar,
-.chat-main {
+.admin-shell {
+  display: grid;
+  grid-template-columns: minmax(340px, 430px) minmax(360px, 1fr);
+  gap: 1.25rem;
+  padding: 1.5rem;
+  min-height: 100vh;
+}
+
+.workspace-shell {
+  display: grid;
+  grid-template-columns: 15rem 18rem minmax(0, 1fr) 24rem;
+  min-height: 100vh;
+}
+
+.panel,
+.workspace-rail,
+.channels-sidebar,
+.channel-feed,
+.thread-drawer {
+  backdrop-filter: blur(20px);
+  background: rgba(16, 18, 24, 0.88);
+  border-right: 1px solid rgba(244, 241, 234, 0.06);
+}
+
+.panel {
+  border: 1px solid rgba(244, 241, 234, 0.06);
+  border-radius: 1.5rem;
+  padding: 1.4rem;
+}
+
+.admin-panel {
   display: grid;
   gap: 1rem;
-}
-
-.chat-main {
-  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
   align-content: start;
 }
 
-.message-panel {
-  grid-row: span 3;
-}
-
-.list-block {
+.panel-output {
   display: grid;
-  gap: 0.75rem;
+  gap: 1rem;
+  align-content: start;
 }
 
-.list-column {
+.workspace-rail,
+.channels-sidebar,
+.thread-drawer {
+  padding: 1.1rem;
   display: grid;
-  gap: 0.5rem;
+  gap: 1rem;
+  align-content: start;
 }
 
-.list-button {
-  justify-content: flex-start;
+.workspace-rail {
+  background: rgba(20, 21, 28, 0.94);
+}
+
+.workspace-brand,
+.sidebar-header,
+.channel-feed-header,
+.thread-header {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.workspace-list,
+.channel-list,
+.feed-list,
+.thread-messages,
+.admin-project-list {
+  display: grid;
+  gap: 0.7rem;
+  min-height: 0;
+  overflow: auto;
+}
+
+.workspace-button,
+.channel-button {
+  width: 100%;
   text-align: left;
-  border-radius: 1rem;
+  background: transparent;
+  color: inherit;
+  border: 1px solid transparent;
 }
 
-.list-button-active {
-  background: #e28b56;
-  color: #101317;
+.workspace-button:hover:not(:disabled),
+.channel-button:hover:not(:disabled),
+.feed-card-button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.05);
 }
 
-.message-list {
+.workspace-button-active,
+.channel-button-active {
+  background: rgba(244, 162, 97, 0.18);
+  border-color: rgba(244, 162, 97, 0.2);
+}
+
+.workspace-button-name {
+  display: block;
+  font-weight: 600;
+}
+
+.channel-button {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding-inline: 0.85rem;
+}
+
+.channel-hash {
+  color: rgba(244, 241, 234, 0.5);
+}
+
+.workspace-rail-actions {
+  display: grid;
+  gap: 0.7rem;
+  margin-top: auto;
+}
+
+.channel-feed {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-height: 100vh;
+  padding: 1.1rem 1.2rem;
+  gap: 1rem;
+}
+
+.feed-card {
+  border: 1px solid rgba(244, 241, 234, 0.06);
+  border-radius: 1.15rem;
+  background: rgba(28, 31, 39, 0.86);
+}
+
+.feed-card-button {
+  width: 100%;
+  padding: 1rem;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.feed-card-text {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.45;
+}
+
+.feed-card-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.85rem;
+  color: rgba(244, 241, 234, 0.56);
+  font-size: 0.86rem;
+}
+
+.composer-panel,
+.thread-debug {
   display: grid;
   gap: 0.75rem;
-  margin: 1rem 0;
 }
 
-.message-bubble {
+.thread-drawer {
+  background: rgba(12, 14, 18, 0.94);
+}
+
+.thread-messages {
+  align-content: start;
+}
+
+.thread-message {
   border-radius: 1rem;
-  padding: 0.9rem 1rem;
-  border: 1px solid rgba(243, 239, 230, 0.1);
+  padding: 0.95rem 1rem;
+  border: 1px solid rgba(244, 241, 234, 0.08);
 }
 
-.message-user {
-  background: rgba(226, 139, 86, 0.12);
+.thread-message-user {
+  background: rgba(255, 255, 255, 0.03);
 }
 
-.message-assistant {
-  background: rgba(88, 124, 255, 0.12);
+.thread-message-assistant {
+  background: rgba(53, 145, 255, 0.1);
 }
 
-.message-role {
-  margin: 0 0 0.35rem;
+.thread-message-streaming {
+  border-style: dashed;
+}
+
+.thread-message-role {
+  margin: 0 0 0.4rem;
+  color: rgba(244, 241, 234, 0.58);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   font-size: 0.72rem;
-  color: rgba(243, 239, 230, 0.65);
 }
 
-.empty-state {
-  color: rgba(243, 239, 230, 0.65);
-}
-
-@media (max-width: 900px) {
-  .app-shell,
-  .chat-shell,
-  .chat-main {
-    grid-template-columns: 1fr;
-    padding: 1rem;
+@media (max-width: 1280px) {
+  .workspace-shell {
+    grid-template-columns: 13rem 16rem minmax(0, 1fr);
   }
 
-  .message-panel {
-    grid-row: auto;
+  .thread-drawer {
+    grid-column: 1 / -1;
+    border-top: 1px solid rgba(244, 241, 234, 0.06);
+    border-right: 0;
+  }
+}
+
+@media (max-width: 920px) {
+  .admin-shell,
+  .workspace-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .workspace-rail,
+  .channels-sidebar,
+  .channel-feed,
+  .thread-drawer {
+    border-right: 0;
+    border-bottom: 1px solid rgba(244, 241, 234, 0.06);
+  }
+
+  .channel-feed {
+    min-height: auto;
   }
 }

@@ -16,6 +16,7 @@ export * from './services/audit';
 export * from './services/dev-bootstrap';
 export * from './services/chat';
 export * from './services/project-context';
+export * from './services/projects';
 export * from './workspace/locking';
 export * from './workspace/paths';
 export * from './workspace/provisioning';
