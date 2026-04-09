@@ -1,5 +1,6 @@
 import { Agent } from '@mastra/core/agent';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
+import { Memory } from '@mastra/memory';
 
 import type { ProjectAgentRequestContext } from '../execution/request-context';
 
@@ -32,6 +33,7 @@ export function createProjectAgent() {
       `Caller role: ${requestContext.get('role')}`,
     ].join('\n'),
     model: () => resolveProjectAgentModel(),
+    memory: new Memory(),
     workspace: ({ requestContext }) => requestContext.get('workspace'),
   });
 }

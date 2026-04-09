@@ -1,5 +1,6 @@
 import { parseEnv } from '../env';
 import { createOrganization, getOrganizationByFirebaseProjectId } from '../db/repositories/organizations';
+import { createProjectChannel } from '../db/repositories/project-channels';
 import { createProject } from '../db/repositories/projects';
 import { upsertUser } from '../db/repositories/users';
 import { addOrganizationMembership } from '../db/repositories/memberships';
@@ -55,9 +56,18 @@ export async function bootstrapProjectForPrincipal(input: {
     activeAgentVersion: 'v1',
   });
 
+  const defaultChannel = await createProjectChannel({
+    projectId: project.id,
+    name: 'general',
+    slug: 'general',
+    description: 'Default workspace chat channel',
+    createdBy: user.id,
+  });
+
   return {
     projectId: project.id,
     organizationId: organization.id,
+    defaultChannelId: defaultChannel.id,
     workspaceRootPath: provisioned.root.root_path,
     binding: {
       activeAgentRef: provisioned.binding.active_agent_ref,

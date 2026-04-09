@@ -10,6 +10,8 @@ describe('workspace bindings', () => {
   beforeEach(async () => {
     await pool.query(`
       truncate table
+        channel_threads,
+        project_channels,
         workspace_provisioning_jobs,
         workspace_events,
         workspace_locks,

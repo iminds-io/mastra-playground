@@ -63,6 +63,13 @@ pre {
   padding: 2rem;
 }
 
+.chat-shell {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: minmax(280px, 360px) minmax(420px, 1fr);
+  padding: 2rem;
+}
+
 .panel {
   backdrop-filter: blur(18px);
   background: rgba(14, 18, 22, 0.76);
@@ -102,9 +109,83 @@ pre {
   margin-top: 1rem;
 }
 
+.chat-sidebar,
+.chat-main {
+  display: grid;
+  gap: 1rem;
+}
+
+.chat-main {
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  align-content: start;
+}
+
+.message-panel {
+  grid-row: span 3;
+}
+
+.list-block {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.list-column {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.list-button {
+  justify-content: flex-start;
+  text-align: left;
+  border-radius: 1rem;
+}
+
+.list-button-active {
+  background: #e28b56;
+  color: #101317;
+}
+
+.message-list {
+  display: grid;
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+
+.message-bubble {
+  border-radius: 1rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid rgba(243, 239, 230, 0.1);
+}
+
+.message-user {
+  background: rgba(226, 139, 86, 0.12);
+}
+
+.message-assistant {
+  background: rgba(88, 124, 255, 0.12);
+}
+
+.message-role {
+  margin: 0 0 0.35rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.72rem;
+  color: rgba(243, 239, 230, 0.65);
+}
+
+.empty-state {
+  color: rgba(243, 239, 230, 0.65);
+}
+
 @media (max-width: 900px) {
-  .app-shell {
+  .app-shell,
+  .chat-shell,
+  .chat-main {
     grid-template-columns: 1fr;
     padding: 1rem;
+  }
+
+  .message-panel {
+    grid-row: auto;
   }
 }

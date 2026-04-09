@@ -68,7 +68,7 @@ describe('authenticated routes', () => {
       }),
     });
 
-    const response = await app.request('/api/projects/project-1/agent/run', {
+    const response = await app.request('/api/projects/project-1/admin/test', {
       method: 'POST',
       headers: {
         authorization: 'Bearer demo-token',

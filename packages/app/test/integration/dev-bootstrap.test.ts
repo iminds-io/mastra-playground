@@ -10,6 +10,8 @@ describe('dev bootstrap route', () => {
   beforeEach(async () => {
     await pool.query(`
       truncate table
+        channel_threads,
+        project_channels,
         workspace_provisioning_jobs,
         workspace_events,
         workspace_locks,
@@ -62,6 +64,7 @@ describe('dev bootstrap route', () => {
 
     expect(payload.projectId).toBeTruthy();
     expect(payload.organizationId).toBeTruthy();
+    expect(payload.defaultChannelId).toBeTruthy();
     expect(payload.workspaceRootPath).toContain(`/project_${payload.projectId}`);
     expect(payload.binding).toEqual({
       activeAgentRef: 'default',

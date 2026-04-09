@@ -10,6 +10,8 @@ export type ProjectExecutionContext = {
 
 export type ProjectAgentRequestContext = ProjectExecutionContext & {
   workspace: Awaited<ReturnType<typeof createRuntimeWorkspace>>;
+  channelId?: string;
+  currentThreadId?: string;
   mastra__resourceId: string;
   mastra__threadId: string;
 };
