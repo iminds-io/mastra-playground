@@ -2,9 +2,16 @@
   "name": "@hono-workspace/platform",
   "private": true,
   "type": "module",
+  "dependencies": {
+    "dotenv": "17.2.3",
+    "pg": "8.20.0"
+  },
+  "devDependencies": {
+    "@types/pg": "8.15.6"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "db:migrate": "node ./src/db/migrate.ts",
+    "db:migrate": "tsx ./src/db/migrate.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   }
 }
