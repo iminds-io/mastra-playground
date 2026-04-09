@@ -155,6 +155,16 @@ type AppFactoryParams = {
 
 export async function createApp(params: AppFactoryParams = {}) {
   const app = new Hono<AppBindings>();
+  app.onError((error, c) => {
+    console.error(error);
+    return c.json(
+      {
+        error: 'Internal Server Error',
+      },
+      500,
+    );
+  });
+
   const tokenVerifier =
     params.tokenVerifier ??
     createFirebaseTokenVerifier({

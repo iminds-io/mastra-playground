@@ -81,10 +81,15 @@ async function apiFetch<T>(path: string, user: AuthUser, init?: RequestInit): Pr
   });
 
   const durationMs = Math.round(performance.now() - startedAt);
-  const payload = await response.json();
+  const contentType = response.headers.get('content-type') ?? '';
+  const payload = contentType.includes('application/json')
+    ? await response.json()
+    : await response.text();
 
   if (!response.ok) {
-    throw new Error(`[${response.status}] ${JSON.stringify(payload)}`);
+    throw new Error(
+      `[${response.status}] ${typeof payload === 'string' ? payload : JSON.stringify(payload)}`,
+    );
   }
 
   return {

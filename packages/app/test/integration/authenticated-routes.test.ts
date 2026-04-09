@@ -87,4 +87,40 @@ describe('authenticated routes', () => {
       text: 'agent heard: hello',
     });
   });
+
+  it('returns JSON when a protected route throws', async () => {
+    const app = await createApp({
+      tokenVerifier: {
+        async verifyIdToken() {
+          return {
+            uid: 'firebase-user-1',
+            email: 'user@example.com',
+            emailVerified: true,
+            name: 'Demo User',
+            picture: null,
+            authTime: 123,
+            rawClaims: {},
+          };
+        },
+      },
+      executeProjectAgent: async () => {
+        throw new Error('Boom');
+      },
+    });
+
+    const response = await app.request('/api/projects/project-1/admin/test', {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer demo-token',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ message: 'hello' }),
+    });
+
+    expect(response.status).toBe(500);
+    expect(response.headers.get('content-type')).toContain('application/json');
+    expect(await response.json()).toEqual({
+      error: 'Internal Server Error',
+    });
+  });
 });
