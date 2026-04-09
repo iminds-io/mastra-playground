@@ -11,6 +11,7 @@ export * from './mastra/create-mastra';
 export * from './mastra/execution/execute-agent';
 export * from './services/access-control';
 export * from './services/audit';
+export * from './services/dev-bootstrap';
 export * from './services/project-context';
 export * from './workspace/locking';
 export * from './workspace/paths';

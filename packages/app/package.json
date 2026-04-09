@@ -6,6 +6,7 @@
     "@hono-workspace/platform": "workspace:*",
     "@hono/node-server": "1.19.13",
     "@mastra/hono": "1.4.3",
+    "dotenv": "17.2.3",
     "hono": "4.12.12",
     "zod": "3.25.76"
   },

@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { MastraServer } from '@mastra/hono';
 
-import { createFirebaseTokenVerifier, createMastra, executeProjectAgent } from '@hono-workspace/platform';
+import { bootstrapProjectForPrincipal, createFirebaseTokenVerifier, createMastra, executeProjectAgent } from '@hono-workspace/platform';
 
 import { createAuthMiddleware, type AppBindings } from '../middleware/auth';
 import { healthRoutes } from '../routes/health';
@@ -34,6 +34,20 @@ type AppFactoryParams = {
     }>;
   };
   executeProjectAgent?: ExecuteProjectAgent;
+  bootstrapProjectForPrincipal?: (input: {
+    uid: string;
+    email: string | null;
+    name: string | null;
+    projectName?: string;
+  }) => Promise<{
+    projectId: string;
+    organizationId: string;
+    workspaceRootPath: string;
+    binding: {
+      activeAgentRef: string;
+      activeAgentVersion: string;
+    };
+  }>;
 };
 
 export async function createApp(params: AppFactoryParams = {}) {
@@ -52,6 +66,18 @@ export async function createApp(params: AppFactoryParams = {}) {
   app.use('/api/*', auth);
   app.route('/api', meRoutes);
   app.route('/api/projects', projectsRoutes);
+  app.post('/api/dev/bootstrap-project', async (c) => {
+    const principal = c.get('principal');
+    const body = await c.req.json<{ name?: string }>();
+    const result = await (params.bootstrapProjectForPrincipal ?? bootstrapProjectForPrincipal)({
+      uid: principal.uid,
+      email: principal.email,
+      name: principal.name,
+      ...(body.name ? { projectName: body.name } : {}),
+    });
+
+    return c.json(result);
+  });
   app.post('/api/projects/:projectId/agent/run', async (c) => {
     const principal = c.get('principal');
     const body = await c.req.json<{ message?: string }>();

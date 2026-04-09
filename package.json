@@ -6,8 +6,9 @@
   "scripts": {
     "build": "pnpm -r build",
     "dev": "pnpm --filter @hono-workspace/app dev",
-    "dev:db": "docker compose up -d postgres",
-    "dev:db:down": "docker compose down",
+    "dev:web": "pnpm --filter @hono-workspace/web dev",
+    "dev:db": "docker-compose up -d postgres",
+    "dev:db:down": "docker-compose down",
     "test": "vitest run --config vitest.config.ts",
     "test:watch": "vitest",
     "typecheck": "pnpm -r typecheck"

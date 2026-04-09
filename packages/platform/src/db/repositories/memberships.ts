@@ -16,6 +16,10 @@ export async function addOrganizationMembership(input: {
     `
       insert into organization_memberships(organization_id, user_id, role)
       values($1, $2, $3)
+      on conflict(organization_id, user_id)
+      do update set
+        role = excluded.role,
+        updated_at = now()
       returning id, organization_id, user_id, role
     `,
     [input.organizationId, input.userId, input.role],

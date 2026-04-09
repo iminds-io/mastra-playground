@@ -21,3 +21,19 @@ export async function createOrganization(input: {
 
   return result.rows[0]!;
 }
+
+export async function getOrganizationByFirebaseProjectId(
+  firebaseProjectId: string,
+): Promise<OrganizationRecord | null> {
+  const result = await pool.query<OrganizationRecord>(
+    `
+      select id, name, firebase_project_id
+      from organizations
+      where firebase_project_id = $1
+      limit 1
+    `,
+    [firebaseProjectId],
+  );
+
+  return result.rows[0] ?? null;
+}
