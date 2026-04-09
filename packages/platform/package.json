@@ -1,0 +1,10 @@
+{
+  "name": "@hono-workspace/platform",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "db:migrate": "node ./src/db/migrate.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  }
+}

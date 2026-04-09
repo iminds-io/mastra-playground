@@ -1,0 +1,10 @@
+{
+  "name": "@hono-workspace/app",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "node --watch src/index.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  }
+}
