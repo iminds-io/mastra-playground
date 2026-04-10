@@ -147,7 +147,7 @@ const api = vi.hoisted(() => ({
     _projectId: string,
     _channelId: string,
     threadId: string,
-    message: string,
+    message: string | undefined,
     handlers: {
       onEvent(event: { event: string; data: Record<string, unknown> }): void;
     },
@@ -173,9 +173,9 @@ const api = vi.hoisted(() => ({
     handlers.onEvent({
       event: 'message_saved',
       data: {
-        id: 'assistant-3',
+        id: message ? 'assistant-reply' : 'assistant-root',
         role: 'assistant',
-        text: `Working through it. (${message})`,
+        text: message ? `Working through it. (${message})` : 'Working through it.',
         createdAt: '2026-04-09T00:02:00.000Z',
       },
     });
@@ -267,7 +267,7 @@ describe('App', () => {
     expect(screen.getByText('I can break that into milestones.')).toBeTruthy();
   });
 
-  it('creates a new channel post and streams the assistant reply only in the thread pane', async () => {
+  it('creates a new channel post, auto-streams the root response, and clears transient stream text after save', async () => {
     window.history.pushState({}, '', '/chat/project-123');
 
     render(<App />);
@@ -299,6 +299,21 @@ describe('App', () => {
       );
     });
 
+    await waitFor(() => {
+      expect(api.streamThreadReply).toHaveBeenCalledWith(
+        authState.user,
+        'project-123',
+        'channel-general',
+        'thread-2',
+        undefined,
+        expect.objectContaining({
+          onEvent: expect.any(Function),
+        }),
+      );
+    });
+
+    expect(screen.getByText('Working through it.')).toBeTruthy();
+
     fireEvent.change(screen.getByLabelText(/reply in thread/i), {
       target: { value: 'Give me the first step.' },
     });
@@ -317,8 +332,8 @@ describe('App', () => {
       );
     });
 
-    expect(screen.getByText('Working through it.')).toBeTruthy();
     expect(screen.getByText('Map the rollout by milestone.')).toBeTruthy();
     expect(screen.queryByText('Working through it. (Give me the first step.)')).toBeTruthy();
+    expect(screen.getAllByText(/^Working through it\.$/)).toHaveLength(1);
   });
 });

@@ -245,7 +245,7 @@ export async function streamThreadReply(
   projectId: string,
   channelId: string,
   threadId: string,
-  message: string,
+  message: string | undefined,
   handlers: {
     onEvent(event: StreamEvent): void;
   },
@@ -258,7 +258,7 @@ export async function streamThreadReply(
         ...(await buildHeaders(user)),
         'content-type': 'application/json',
       },
-      body: JSON.stringify({ message }),
+      body: JSON.stringify(typeof message === 'string' ? { message } : {}),
     },
   );
 

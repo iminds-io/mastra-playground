@@ -385,10 +385,88 @@ export function App() {
       ]);
       setNewPostMessage('');
       await handleOpenThread(result.thread.id);
+      await runThreadStream({
+        threadId: result.thread.id,
+        channelId: selectedChannelId,
+      });
     } catch (error) {
       setLastError(String(error));
     } finally {
       setIsLoading(null);
+    }
+  }
+
+  async function runThreadStream(input: {
+    threadId: string;
+    channelId: string;
+    message?: string;
+  }) {
+    if (!user || route.name !== 'chat' || !route.projectId) {
+      return;
+    }
+
+    try {
+      await streamThreadReply(
+        user,
+        route.projectId,
+        input.channelId,
+        input.threadId,
+        input.message,
+        {
+          onEvent: (event) => {
+            if (event.event === 'token') {
+              setStreamingReply((current) => `${current}${String(event.data.text ?? '')}`);
+            }
+
+            if (event.event === 'message_saved') {
+              setThreadMessages((current) => [
+                ...current,
+                {
+                  id: String(event.data.id ?? `assistant-${Date.now()}`),
+                  role: String(event.data.role ?? 'assistant'),
+                  text: String(event.data.text ?? ''),
+                  createdAt: String(event.data.createdAt ?? new Date().toISOString()),
+                },
+              ]);
+              setStreamingReply('');
+            }
+
+            if (event.event === 'thread_updated') {
+              const nextLastMessageAt =
+                typeof event.data.lastMessageAt === 'string' ? event.data.lastMessageAt : null;
+
+              if (nextLastMessageAt) {
+                setFeedPosts((current) =>
+                  current.map((post) =>
+                    post.threadId === input.threadId
+                      ? {
+                          ...post,
+                          lastMessageAt: nextLastMessageAt,
+                          replyCount: post.replyCount + 1,
+                        }
+                      : post,
+                  ),
+                );
+                setSelectedThread((current) =>
+                  current && current.id === input.threadId
+                    ? {
+                        ...current,
+                        lastMessageAt: nextLastMessageAt,
+                        updatedAt: nextLastMessageAt,
+                      }
+                    : current,
+                );
+              }
+            }
+
+            if (event.event === 'done') {
+              setStreamingReply('');
+            }
+          },
+        },
+      );
+    } catch (error) {
+      setLastError(String(error));
     }
   }
 
@@ -410,62 +488,11 @@ export function App() {
     setStreamingReply('');
 
     try {
-      await streamThreadReply(
-        user,
-        route.projectId,
-        selectedChannelId,
-        selectedThread.id,
+      await runThreadStream({
+        threadId: selectedThread.id,
+        channelId: selectedChannelId,
         message,
-        {
-          onEvent: (event) => {
-            if (event.event === 'token') {
-              setStreamingReply((current) => `${current}${String(event.data.text ?? '')}`);
-            }
-
-            if (event.event === 'message_saved') {
-              setThreadMessages((current) => [
-                ...current,
-                {
-                  id: String(event.data.id ?? `assistant-${Date.now()}`),
-                  role: String(event.data.role ?? 'assistant'),
-                  text: String(event.data.text ?? ''),
-                  createdAt: String(event.data.createdAt ?? new Date().toISOString()),
-                },
-              ]);
-            }
-
-            if (event.event === 'thread_updated') {
-              const nextLastMessageAt =
-                typeof event.data.lastMessageAt === 'string' ? event.data.lastMessageAt : null;
-
-              if (nextLastMessageAt) {
-                setFeedPosts((current) =>
-                  current.map((post) =>
-                    post.threadId === selectedThread.id
-                      ? {
-                          ...post,
-                          lastMessageAt: nextLastMessageAt,
-                          replyCount: post.replyCount + 1,
-                        }
-                      : post,
-                  ),
-                );
-                setSelectedThread((current) =>
-                  current
-                    ? {
-                        ...current,
-                        lastMessageAt: nextLastMessageAt,
-                        updatedAt: nextLastMessageAt,
-                      }
-                    : current,
-                );
-              }
-            }
-          },
-        },
-      );
-    } catch (error) {
-      setLastError(String(error));
+      });
     } finally {
       setIsLoading(null);
     }
