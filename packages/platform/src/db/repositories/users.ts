@@ -1,4 +1,4 @@
-import { pool } from '../client';
+import { getDatabasePool } from '../context';
 
 export type UserRecord = {
   id: string;
@@ -12,7 +12,7 @@ export async function upsertUser(input: {
   email: string | null;
   displayName: string | null;
 }): Promise<UserRecord> {
-  const result = await pool.query<UserRecord>(
+  const result = await getDatabasePool().query<UserRecord>(
     `
       insert into users(firebase_uid, email, display_name)
       values($1, $2, $3)
@@ -30,7 +30,7 @@ export async function upsertUser(input: {
 }
 
 export async function getUserByFirebaseUid(firebaseUid: string): Promise<UserRecord | null> {
-  const result = await pool.query<UserRecord>(
+  const result = await getDatabasePool().query<UserRecord>(
     `
       select id, firebase_uid, email, display_name
       from users

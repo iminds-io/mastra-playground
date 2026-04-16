@@ -1,4 +1,4 @@
-import { pool } from '../client';
+import { getDatabasePool } from '../context';
 
 export type WorkspaceRootRecord = {
   id: string;
@@ -18,7 +18,7 @@ export async function createWorkspaceRoot(input: {
   rootPath: string;
   status: string;
 }): Promise<WorkspaceRootRecord> {
-  const result = await pool.query<WorkspaceRootRecord>(
+  const result = await getDatabasePool().query<WorkspaceRootRecord>(
     `
       insert into workspace_roots(
         organization_id,
@@ -52,7 +52,7 @@ export async function markWorkspaceRootReady(id: string): Promise<WorkspaceRootR
 }
 
 export async function getActiveWorkspaceRootByProjectId(projectId: string): Promise<WorkspaceRootRecord | null> {
-  const result = await pool.query<WorkspaceRootRecord>(
+  const result = await getDatabasePool().query<WorkspaceRootRecord>(
     `
       select
         id,
@@ -76,7 +76,7 @@ export async function getActiveWorkspaceRootByProjectId(projectId: string): Prom
 }
 
 export async function updateWorkspaceRootStatus(id: string, status: string): Promise<WorkspaceRootRecord> {
-  const result = await pool.query<WorkspaceRootRecord>(
+  const result = await getDatabasePool().query<WorkspaceRootRecord>(
     `
       update workspace_roots
       set status = $2, updated_at = now()

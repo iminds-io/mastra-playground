@@ -1,4 +1,4 @@
-import { pool } from '../db/client';
+import { getDatabasePool } from '../db/context';
 import { AccessDeniedError } from './access-control';
 
 export type ProjectContext = {
@@ -13,7 +13,7 @@ export async function loadProjectContext(input: {
   firebaseUid: string;
   projectId: string;
 }): Promise<ProjectContext> {
-  const result = await pool.query<{
+  const result = await getDatabasePool().query<{
     actor_user_id: string;
     organization_id: string;
     project_id: string;

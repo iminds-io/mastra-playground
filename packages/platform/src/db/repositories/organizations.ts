@@ -1,4 +1,4 @@
-import { pool } from '../client';
+import { getDatabasePool } from '../context';
 
 export type OrganizationRecord = {
   id: string;
@@ -10,7 +10,7 @@ export async function createOrganization(input: {
   name: string;
   firebaseProjectId: string;
 }): Promise<OrganizationRecord> {
-  const result = await pool.query<OrganizationRecord>(
+  const result = await getDatabasePool().query<OrganizationRecord>(
     `
       insert into organizations(name, firebase_project_id)
       values($1, $2)
@@ -25,7 +25,7 @@ export async function createOrganization(input: {
 export async function getOrganizationByFirebaseProjectId(
   firebaseProjectId: string,
 ): Promise<OrganizationRecord | null> {
-  const result = await pool.query<OrganizationRecord>(
+  const result = await getDatabasePool().query<OrganizationRecord>(
     `
       select id, name, firebase_project_id
       from organizations

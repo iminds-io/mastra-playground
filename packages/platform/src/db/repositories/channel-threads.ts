@@ -1,4 +1,4 @@
-import { pool } from '../client';
+import { getDatabasePool } from '../context';
 
 export type ChannelThreadRecord = {
   id: string;
@@ -16,7 +16,7 @@ export async function createChannelThread(input: {
   ownerUserId?: string | null;
   title?: string | null;
 }): Promise<ChannelThreadRecord> {
-  const result = await pool.query<ChannelThreadRecord>(
+  const result = await getDatabasePool().query<ChannelThreadRecord>(
     `
       insert into channel_threads(channel_id, owner_user_id, title, last_message_at)
       values($1, $2, $3, now())
@@ -29,7 +29,7 @@ export async function createChannelThread(input: {
 }
 
 export async function listChannelThreads(channelId: string): Promise<ChannelThreadRecord[]> {
-  const result = await pool.query<ChannelThreadRecord>(
+  const result = await getDatabasePool().query<ChannelThreadRecord>(
     `
       select id, channel_id, owner_user_id, title, status, last_message_at, created_at, updated_at
       from channel_threads
@@ -47,7 +47,7 @@ export async function getChannelThreadById(input: {
   channelId: string;
   threadId: string;
 }): Promise<ChannelThreadRecord | null> {
-  const result = await pool.query<ChannelThreadRecord>(
+  const result = await getDatabasePool().query<ChannelThreadRecord>(
     `
       select id, channel_id, owner_user_id, title, status, last_message_at, created_at, updated_at
       from channel_threads
@@ -66,7 +66,7 @@ export async function updateChannelThreadMetadata(input: {
   title?: string | null;
   lastMessageAt?: Date;
 }): Promise<ChannelThreadRecord> {
-  const result = await pool.query<ChannelThreadRecord>(
+  const result = await getDatabasePool().query<ChannelThreadRecord>(
     `
       update channel_threads
       set

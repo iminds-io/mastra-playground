@@ -1,7 +1,7 @@
-import { pool } from './client';
+import { getDatabasePool } from './context';
 
 export async function listAppTables(): Promise<string[]> {
-  const result = await pool.query<{
+  const result = await getDatabasePool().query<{
     table_name: string;
   }>(`
     select table_name

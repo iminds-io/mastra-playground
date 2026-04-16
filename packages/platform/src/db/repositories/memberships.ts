@@ -1,4 +1,4 @@
-import { pool } from '../client';
+import { getDatabasePool } from '../context';
 
 export type OrganizationMembershipRecord = {
   id: string;
@@ -12,7 +12,7 @@ export async function addOrganizationMembership(input: {
   userId: string;
   role: string;
 }): Promise<OrganizationMembershipRecord> {
-  const result = await pool.query<OrganizationMembershipRecord>(
+  const result = await getDatabasePool().query<OrganizationMembershipRecord>(
     `
       insert into organization_memberships(organization_id, user_id, role)
       values($1, $2, $3)

@@ -1,4 +1,4 @@
-import { pool } from '../client';
+import { getDatabasePool } from '../context';
 
 export type ProjectRecord = {
   id: string;
@@ -9,7 +9,7 @@ export type ProjectRecord = {
 };
 
 export async function listProjectsForFirebaseUid(firebaseUid: string): Promise<ProjectRecord[]> {
-  const result = await pool.query<ProjectRecord>(
+  const result = await getDatabasePool().query<ProjectRecord>(
     `
       select distinct
         projects.id,
@@ -36,7 +36,7 @@ export async function createProject(input: {
   name: string;
   slug: string;
 }): Promise<ProjectRecord> {
-  const result = await pool.query<ProjectRecord>(
+  const result = await getDatabasePool().query<ProjectRecord>(
     `
       insert into projects(organization_id, name, slug)
       values($1, $2, $3)

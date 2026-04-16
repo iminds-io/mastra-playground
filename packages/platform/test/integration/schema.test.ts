@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import '../../src/db/client';
 import { listAppTables } from '../../src/db/schema';
 
 describe('database schema', () => {

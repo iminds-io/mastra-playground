@@ -1,4 +1,4 @@
-import { pool } from '../db/client';
+import { getDatabasePool } from '../db/context';
 
 export async function recordWorkspaceEvent(input: {
   workspaceRootId: string;
@@ -6,7 +6,7 @@ export async function recordWorkspaceEvent(input: {
   actorUserId?: string;
   payloadJson?: Record<string, unknown>;
 }) {
-  await pool.query(
+  await getDatabasePool().query(
     `
       insert into workspace_events(workspace_root_id, event_type, actor_user_id, payload_json)
       values($1, $2, $3, $4::jsonb)

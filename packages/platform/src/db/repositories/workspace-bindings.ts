@@ -1,4 +1,4 @@
-import { pool } from '../client';
+import { getDatabasePool } from '../context';
 
 export type WorkspaceBindingRecord = {
   id: string;
@@ -17,7 +17,7 @@ export async function createWorkspaceBinding(input: {
   activeAgentVersion: string;
   policyJson: Record<string, unknown>;
 }): Promise<WorkspaceBindingRecord> {
-  const result = await pool.query<WorkspaceBindingRecord>(
+  const result = await getDatabasePool().query<WorkspaceBindingRecord>(
     `
       insert into workspace_bindings(
         project_id,
@@ -43,7 +43,7 @@ export async function createWorkspaceBinding(input: {
 }
 
 export async function getActiveWorkspaceBinding(projectId: string): Promise<WorkspaceBindingRecord | null> {
-  const result = await pool.query<WorkspaceBindingRecord>(
+  const result = await getDatabasePool().query<WorkspaceBindingRecord>(
     `
       select
         id,

@@ -1,4 +1,4 @@
-import { pool } from '../client';
+import { getDatabasePool } from '../context';
 
 export type ProjectChannelRecord = {
   id: string;
@@ -20,7 +20,7 @@ export async function createProjectChannel(input: {
   isPrivate?: boolean;
   createdBy?: string | null;
 }): Promise<ProjectChannelRecord> {
-  const result = await pool.query<ProjectChannelRecord>(
+  const result = await getDatabasePool().query<ProjectChannelRecord>(
     `
       insert into project_channels(project_id, name, slug, description, kind, is_private, created_by)
       values($1, $2, $3, $4, $5, $6, $7)
@@ -41,7 +41,7 @@ export async function createProjectChannel(input: {
 }
 
 export async function listProjectChannels(projectId: string): Promise<ProjectChannelRecord[]> {
-  const result = await pool.query<ProjectChannelRecord>(
+  const result = await getDatabasePool().query<ProjectChannelRecord>(
     `
       select id, project_id, name, slug, description, kind, is_private, created_by
       from project_channels
@@ -58,7 +58,7 @@ export async function getProjectChannelById(input: {
   projectId: string;
   channelId: string;
 }): Promise<ProjectChannelRecord | null> {
-  const result = await pool.query<ProjectChannelRecord>(
+  const result = await getDatabasePool().query<ProjectChannelRecord>(
     `
       select id, project_id, name, slug, description, kind, is_private, created_by
       from project_channels

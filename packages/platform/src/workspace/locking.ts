@@ -1,4 +1,4 @@
-import { pool } from '../db/client';
+import { getDatabasePool } from '../db/context';
 
 export type WorkspaceLock = {
   lockId: string;
@@ -12,6 +12,7 @@ export function createWorkspaceLockService() {
       holder: string;
       ttlSeconds: number;
     }): Promise<WorkspaceLock> {
+      const pool = getDatabasePool();
       await pool.query('delete from workspace_locks where expires_at <= now()');
 
       const existing = await pool.query<{ id: string }>(
@@ -44,7 +45,7 @@ export function createWorkspaceLockService() {
     },
 
     async release(lockId: string): Promise<void> {
-      await pool.query('delete from workspace_locks where id = $1', [lockId]);
+      await getDatabasePool().query('delete from workspace_locks where id = $1', [lockId]);
     },
   };
 }
