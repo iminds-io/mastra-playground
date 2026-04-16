@@ -1,6 +1,7 @@
 export * from './auth/claims';
 export * from './auth/firebase-token-verifier';
 export * from './db/client';
+export * from './db/context';
 export * from './db/repositories/memberships';
 export * from './db/repositories/project-channels';
 export * from './db/repositories/organizations';
@@ -18,6 +19,7 @@ export * from './services/chat';
 export * from './services/project-context';
 export * from './services/projects';
 export * from './workspace/locking';
+export * from './workspace/workspace-context';
 export * from './workspace/paths';
 export * from './workspace/provisioning';
 export * from './workspace/reconciliation';

@@ -9,6 +9,7 @@ import { createOrganization } from '../../src/db/repositories/organizations';
 import { createProject } from '../../src/db/repositories/projects';
 import { upsertUser } from '../../src/db/repositories/users';
 import { executeProjectAgent } from '../../src/mastra/execution/execute-agent';
+import '../../src/workspace/factory';
 import { provisionWorkspaceForProject } from '../../src/workspace/provisioning';
 
 describe('executeProjectAgent', () => {

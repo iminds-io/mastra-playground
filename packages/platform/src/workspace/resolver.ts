@@ -1,6 +1,6 @@
 import { getActiveWorkspaceBinding } from '../db/repositories/workspace-bindings';
 import { getActiveWorkspaceRootByProjectId } from '../db/repositories/workspace-roots';
-import { createRuntimeWorkspace } from './factory';
+import { getWorkspaceFactory } from './workspace-context';
 
 export async function resolveWorkspaceForProject(projectId: string) {
   const [root, binding] = await Promise.all([
@@ -12,7 +12,7 @@ export async function resolveWorkspaceForProject(projectId: string) {
     throw new Error('Workspace is not provisioned for this project');
   }
 
-  const workspace = await createRuntimeWorkspace(root.root_path);
+  const workspace = await getWorkspaceFactory()(root.root_path);
 
   return {
     root,

@@ -1,5 +1,7 @@
 import { LocalFilesystem, LocalSandbox, Workspace } from '@mastra/core/workspace';
 
+import { setWorkspaceFactory } from './workspace-context';
+
 export async function createRuntimeWorkspace(basePath: string) {
   const workspace = new Workspace({
     filesystem: new LocalFilesystem({
@@ -18,3 +20,5 @@ export async function createRuntimeWorkspace(basePath: string) {
 
   return workspace;
 }
+
+setWorkspaceFactory(createRuntimeWorkspace);

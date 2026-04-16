@@ -8,7 +8,7 @@ import { AccessDeniedError } from './access-control';
 import { createProjectChannel, getProjectChannelById, listProjectChannels } from '../db/repositories/project-channels';
 import { getChannelThreadById, listChannelThreads, createChannelThread, updateChannelThreadMetadata } from '../db/repositories/channel-threads';
 import { loadProjectContext } from './project-context';
-import { createRuntimeWorkspace } from '../workspace/factory';
+import { getWorkspaceFactory } from '../workspace/workspace-context';
 import { resolveWorkspaceForProject } from '../workspace/resolver';
 import type { ProjectAgentRequestContext } from '../mastra/execution/request-context';
 
@@ -214,7 +214,7 @@ async function buildExecutionContext(input: {
   threadId: string;
 }) {
   const resolvedWorkspace = await resolveWorkspaceForProject(input.projectId);
-  const runtimeWorkspace = await createRuntimeWorkspace(resolvedWorkspace.root.root_path);
+  const runtimeWorkspace = await getWorkspaceFactory()(resolvedWorkspace.root.root_path);
   const requestContext = new RequestContext<ProjectAgentRequestContext>();
   const resourceId = deriveChannelResourceId(input.channelId);
 

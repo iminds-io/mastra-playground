@@ -1,7 +1,7 @@
 import { RequestContext } from '@mastra/core/request-context';
 
 import { loadProjectContext } from '../../services/project-context';
-import { createRuntimeWorkspace } from '../../workspace/factory';
+import { getWorkspaceFactory } from '../../workspace/workspace-context';
 import { resolveWorkspaceForProject } from '../../workspace/resolver';
 import { createProjectAgent } from '../agents/project-agent';
 import type { ProjectAgentRequestContext } from './request-context';
@@ -22,7 +22,7 @@ type ExecuteProjectAgentDeps = {
   mastra?: {
     getAgent(name: 'projectAgent'): ProjectAgentLike;
   };
-  createRuntimeWorkspace?: typeof createRuntimeWorkspace;
+  createRuntimeWorkspace?: (basePath: string) => Promise<import('@mastra/core/workspace').Workspace>;
 };
 
 export async function executeProjectAgent(input: {
@@ -35,7 +35,7 @@ export async function executeProjectAgent(input: {
     projectId: input.projectId,
   });
   const resolvedWorkspace = await resolveWorkspaceForProject(input.projectId);
-  const runtimeWorkspace = await (deps.createRuntimeWorkspace ?? createRuntimeWorkspace)(
+  const runtimeWorkspace = await (deps.createRuntimeWorkspace ?? getWorkspaceFactory())(
     resolvedWorkspace.root.root_path,
   );
   const threadId = projectContext.projectId;
