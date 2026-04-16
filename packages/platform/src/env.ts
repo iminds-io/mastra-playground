@@ -9,7 +9,7 @@ export type ParsedEnv = {
 };
 
 export function parseEnv(env: RawEnv): ParsedEnv {
-  const required = ['DATABASE_URL', 'WORKSPACE_ROOT', 'FIREBASE_PROJECT_ID', 'FIREBASE_TOKEN'] as const;
+  const required = ['DATABASE_URL', 'FIREBASE_PROJECT_ID', 'FIREBASE_TOKEN'] as const;
 
   for (const key of required) {
     if (!env[key]) {
@@ -19,7 +19,7 @@ export function parseEnv(env: RawEnv): ParsedEnv {
 
   return {
     databaseUrl: env.DATABASE_URL!,
-    workspaceRoot: env.WORKSPACE_ROOT!,
+    workspaceRoot: env.WORKSPACE_ROOT ?? '',
     firebaseProjectId: env.FIREBASE_PROJECT_ID!,
     firebaseApiKey: env.FIREBASE_TOKEN!,
     port: Number(env.PORT ?? 3000),
