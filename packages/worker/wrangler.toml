@@ -1,0 +1,4 @@
+name = "hono-workspace-api"
+main = "src/index.ts"
+compatibility_date = "2026-04-06"
+compatibility_flags = ["nodejs_compat"]

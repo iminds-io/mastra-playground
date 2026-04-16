@@ -1,0 +1,10 @@
+DATABASE_URL=postgres://user:password@your-neon-host.neon.tech/hono_workspace?sslmode=require
+FIREBASE_PROJECT_ID=your-firebase-project-id
+FIREBASE_TOKEN=your-firebase-api-key
+OPENROUTER_API_KEY=your-openrouter-key
+OPENROUTER_MODEL=openai/gpt-4.1-mini
+R2_ACCOUNT_ID=your-cf-account-id
+R2_ACCESS_KEY_ID=your-r2-access-key
+R2_SECRET_ACCESS_KEY=your-r2-secret-key
+R2_BUCKET_NAME=hono-workspace
+WORKSPACE_ROOT=workspaces

@@ -1,0 +1,23 @@
+{
+  "name": "@hono-workspace/worker",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@hono-workspace/platform": "workspace:*",
+    "@mastra/core": "1.24.1",
+    "@mastra/hono": "1.4.3",
+    "@mastra/s3": "latest",
+    "@neondatabase/serverless": "^1.0.2",
+    "hono": "4.12.12",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241218.0",
+    "wrangler": "^4.54.0"
+  },
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  }
+}

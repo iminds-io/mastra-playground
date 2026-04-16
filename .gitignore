@@ -5,3 +5,4 @@ dist
 .env.local
 pnpm-lock.yaml
 var
+packages/worker/.dev.vars
