@@ -8,6 +8,7 @@ export default defineConfig({
     include: ['packages/*/test/integration/**/*.integration.test.ts'],
     exclude: ['**/node_modules/**', '**/dist/**', '**/live/**', '**/smoke/**'],
     globalSetup: ['packages/platform/test/integration/setup.ts'],
+    setupFiles: ['packages/platform/test/integration/setup-env.ts'],
     fileParallelism: false,
     hookTimeout: 60_000,
     testTimeout: 30_000,

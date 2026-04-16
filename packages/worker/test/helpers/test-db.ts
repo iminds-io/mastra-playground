@@ -26,6 +26,23 @@ function getEnvOrThrow(key: string): string {
   return value;
 }
 
+export function rewriteDatabaseUrlHost(databaseUrl: string, newHost: string): string {
+  const parsed = new URL(databaseUrl);
+  parsed.hostname = newHost;
+  return parsed.toString();
+}
+
+export function rewriteDatabaseUrlHostAndDatabase(
+  databaseUrl: string,
+  newHost: string,
+  newDatabase: string,
+): string {
+  const parsed = new URL(databaseUrl);
+  parsed.hostname = newHost;
+  parsed.pathname = `/${newDatabase}`;
+  return parsed.toString();
+}
+
 export function createTestBranchName(prefix: string): string {
   const now = new Date();
   const ymd = now.toISOString().slice(0, 10);
@@ -58,9 +75,19 @@ export function splitSqlStatements(sql: string): string[] {
   return statements;
 }
 
+type NeonEndpoint = {
+  host: string;
+  hosts?: {
+    read_write_host?: string;
+    read_write_pooled_host?: string;
+  };
+  type: string;
+};
+
 function createNeonApiClient(): NeonApiClient {
   const apiKey = getEnvOrThrow('NEON_API_KEY');
   const projectId = getEnvOrThrow('NEON_PROJECT_ID');
+  const parentDatabaseUrl = getEnvOrThrow('DATABASE_URL');
   const baseUrl = 'https://console.neon.tech/api/v2';
   const headers = {
     'Authorization': `Bearer ${apiKey}`,
@@ -84,13 +111,18 @@ function createNeonApiClient(): NeonApiClient {
       }
       const body = await response.json() as {
         branch: { id: string };
-        connection_uris?: Array<{ connection_uri: string }>;
+        endpoints: NeonEndpoint[];
       };
-      const connectionUri = body.connection_uris?.[0]?.connection_uri;
-      if (!connectionUri) {
-        throw new Error('Neon createBranch: no connection_uri returned');
+      const endpoint = body.endpoints[0];
+      if (!endpoint) {
+        throw new Error('Neon createBranch: no endpoints returned');
       }
-      return { branchId: body.branch.id, connectionString: connectionUri };
+      const host = endpoint.hosts?.read_write_pooled_host ?? endpoint.host;
+      // Target the default `neondb` database owned by neondb_owner (the user in
+      // DATABASE_URL). The parent's custom database may be owned by a different
+      // role, causing permission errors on DDL.
+      const connectionString = rewriteDatabaseUrlHostAndDatabase(parentDatabaseUrl, host, 'neondb');
+      return { branchId: body.branch.id, connectionString };
     },
 
     async deleteBranch(branchId: string): Promise<void> {
@@ -141,7 +173,7 @@ export async function createTestBranch(options: { prefix: string }): Promise<Tes
         const statements = splitSqlStatements(file.sql);
         for (const stmt of statements) {
           try {
-            await sql(stmt);
+            await sql.query(stmt);
           } catch (err) {
             throw new Error(`Migration ${file.name} failed on statement:\n${stmt}\n\n${err}`);
           }
