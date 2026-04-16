@@ -38,7 +38,16 @@ export function createProjectAgent(config: ProjectAgentConfig = {}) {
       `Caller role: ${requestContext.get('role')}`,
     ].join('\n'),
     model: () => resolveProjectAgentModel(config),
-    memory: new Memory(),
+    memory: new Memory({
+      options: {
+        // Mastra's observational memory schedules async work that outlives the
+        // originating request. On Cloudflare Workers, that background work
+        // touches the DB pool across request boundaries and triggers
+        // "Cannot perform I/O on behalf of a different request" errors.
+        // Disable until @mastra/core fully supports the CF Workers runtime.
+        observationalMemory: false,
+      },
+    }),
     workspace: ({ requestContext }) => requestContext.get('workspace'),
   });
 }

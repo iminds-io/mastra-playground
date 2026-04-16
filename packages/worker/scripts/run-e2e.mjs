@@ -13,6 +13,7 @@ import { config } from 'dotenv';
 import { findAvailablePort, waitForServer } from '../test/helpers/live-smoke-utils.ts';
 import { createTestBranch } from '../test/helpers/test-db.ts';
 import { cleanupPrefix } from '../test/helpers/test-r2.ts';
+import { initMastraSchema } from '@hono-workspace/platform';
 
 const HOST = '127.0.0.1';
 const scriptDir = dirname(fileURLToPath(import.meta.url));
@@ -66,6 +67,8 @@ async function main() {
   console.log('[e2e] creating Neon branch...');
   const branch = await createTestBranch({ prefix: 'e2e' });
   await branch.runMigrations();
+  console.log('[e2e] initializing Mastra schema...');
+  await initMastraSchema(branch.connectionString);
   console.log(`[e2e] branch ${branch.branchId} ready`);
 
   writeFileSync(devVarsPath, renderEnvContent({

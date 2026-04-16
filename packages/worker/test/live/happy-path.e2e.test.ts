@@ -80,13 +80,45 @@ describe.skipIf(!shouldRun)('worker happy path (non-Mastra)', { timeout: 60_000 
   });
 });
 
-// NOTE: The full Mastra-backed flow (posts, message send, streaming) is tested
-// at the integration layer where real @mastra/pg can connect to Neon. On CF Workers,
-// the internal pg.Pool inside @mastra/pg currently hangs — tracked as a deployment
-// blocker separate from the testing framework.
-describe.skip('worker happy path (Mastra) — BLOCKED: @mastra/pg on CF Workers', () => {
-  it('completes bootstrap → channel → post → message reply', () => {
-    // See .ai/tasks/02_testing_strategy_design.md and 03_testing_implementation_plan.md
-    // for context on the @mastra/pg + CF Workers compatibility issue.
+describe.skipIf(!shouldRun)('worker happy path (Mastra)', { timeout: 180_000 }, () => {
+  it('completes bootstrap → create post → send message and receive model reply', async () => {
+    const user = await createTestUser();
+    createdUsers.push(user);
+    const token = user.idToken;
+
+    const bootstrap = await apiCall<{
+      projectId: string;
+      defaultChannelId: string;
+    }>('/api/dev/bootstrap-project', {
+      method: 'POST',
+      token,
+      body: JSON.stringify({ name: `e2e-mastra-${user.uid}` }),
+    });
+    expect(bootstrap.status).toBe(200);
+    const { projectId, defaultChannelId } = bootstrap.body;
+
+    const post = await apiCall<{
+      thread: { id: string };
+      rootMessage: { id: string; text: string };
+    }>(`/api/projects/${projectId}/channels/${defaultChannelId}/posts`, {
+      method: 'POST',
+      token,
+      body: JSON.stringify({ message: 'say "ok" and nothing else' }),
+    });
+    expect(post.status).toBe(200);
+    expect(post.body.rootMessage.text).toBeTruthy();
+    const threadId = post.body.thread.id;
+
+    const reply = await apiCall<{
+      text: string;
+      threadId: string;
+    }>(`/api/projects/${projectId}/channels/${defaultChannelId}/threads/${threadId}/messages`, {
+      method: 'POST',
+      token,
+      body: JSON.stringify({ message: 'respond with the single word "done"' }),
+    });
+    expect(reply.status).toBe(200);
+    expect(reply.body.threadId).toBe(threadId);
+    expect(reply.body.text.length).toBeGreaterThan(0);
   });
 });
