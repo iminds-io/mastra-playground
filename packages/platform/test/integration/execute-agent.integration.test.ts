@@ -113,3 +113,61 @@ describe('executeProjectAgent', () => {
     expect(result.text).toBe('Project agent says hello.');
   });
 });
+
+describe('executeProjectAgent with real Mastra PG', () => {
+  beforeEach(async () => {
+    await pool.query(`
+      truncate table
+        channel_threads,
+        project_channels,
+        workspace_provisioning_jobs,
+        workspace_events,
+        workspace_locks,
+        workspace_bindings,
+        workspace_roots,
+        organization_memberships,
+        projects,
+        users,
+        organizations
+      restart identity cascade
+    `);
+  });
+
+  it.skipIf(!process.env.OPENROUTER_API_KEY)(
+    'persists the thread via @mastra/pg when generating a reply',
+    { timeout: 60_000 },
+    async () => {
+      const { createMastra } = await import('../../src/mastra/create-mastra');
+      const { seedProjectFixture } = await import('../helpers/fixtures');
+      const { neon } = await import('@neondatabase/serverless');
+
+      const fixture = await seedProjectFixture();
+
+      const mastra = createMastra(process.env.DATABASE_URL!, {
+        openrouterApiKey: process.env.OPENROUTER_API_KEY!,
+        openrouterModel: process.env.OPENROUTER_MODEL,
+      });
+
+      const result = await executeProjectAgent(
+        {
+          firebaseUid: fixture.user.firebaseUid,
+          projectId: fixture.project.id,
+          message: 'respond with the single word "ok" and nothing else',
+        },
+        { mastra },
+      );
+
+      expect(typeof result.text).toBe('string');
+      expect(result.text.length).toBeGreaterThan(0);
+      expect(result.threadId).toBe(fixture.project.id);
+
+      // Verify Mastra persisted its tables on the Neon branch
+      const sql = neon(process.env.DATABASE_URL!);
+      const tables = await sql.query(
+        "select tablename from pg_tables where schemaname = 'public' and tablename like 'mastra%'",
+      );
+      const tableNames = (tables as Array<{ tablename: string }>).map((r) => r.tablename);
+      expect(tableNames.length).toBeGreaterThan(0);
+    },
+  );
+});
