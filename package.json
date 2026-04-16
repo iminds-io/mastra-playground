@@ -10,8 +10,12 @@
     "dev:web": "pnpm --filter @hono-workspace/web dev",
     "dev:db": "docker-compose up -d postgres",
     "dev:db:down": "docker-compose down",
-    "test": "vitest run --config vitest.config.ts",
-    "test:watch": "vitest",
+    "test": "pnpm run test:unit",
+    "test:unit": "vitest run --config vitest.unit.config.ts",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:e2e": "pnpm --filter @hono-workspace/worker run test:e2e",
+    "test:smoke": "pnpm --filter @hono-workspace/worker run test:smoke",
+    "test:watch": "vitest --config vitest.unit.config.ts",
     "typecheck": "pnpm -r typecheck"
   },
   "devDependencies": {
