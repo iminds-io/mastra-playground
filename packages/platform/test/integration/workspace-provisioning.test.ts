@@ -53,6 +53,7 @@ describe('provisionWorkspaceForProject', () => {
       requestedBy: user.id,
       activeAgentRef: 'default',
       activeAgentVersion: 'v1',
+      workspaceRoot: '/Users/pureicis/dev/mastra-playground/hono-workspace/var/workspaces',
     });
 
     expect(result.root.status).toBe('ready');

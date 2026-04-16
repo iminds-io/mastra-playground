@@ -1,17 +1,7 @@
-import { mkdir } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-import { parseEnv } from '../env';
 import { createWorkspaceBinding, getActiveWorkspaceBinding } from '../db/repositories/workspace-bindings';
 import { createWorkspaceRoot, getActiveWorkspaceRootByProjectId, markWorkspaceRootReady } from '../db/repositories/workspace-roots';
-import { config } from 'dotenv';
 import { buildWorkspaceRootPath, ensureContainedWorkspacePath } from './paths';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-config({ path: resolve(__dirname, '../../../../.env') });
-
-const env = parseEnv(process.env);
 const DEFAULT_DIRECTORIES = ['repo', 'docs', 'output', 'tmp', '.workspace-meta'] as const;
 
 export async function provisionWorkspaceForProject(input: {
@@ -20,6 +10,7 @@ export async function provisionWorkspaceForProject(input: {
   requestedBy: string;
   activeAgentRef: string;
   activeAgentVersion: string;
+  workspaceRoot: string;
 }) {
   const existingRoot = await getActiveWorkspaceRootByProjectId(input.projectId);
   const existingBinding = await getActiveWorkspaceBinding(input.projectId);
@@ -33,15 +24,9 @@ export async function provisionWorkspaceForProject(input: {
   }
 
   const rootPath = ensureContainedWorkspacePath(
-    env.workspaceRoot,
-    buildWorkspaceRootPath(env.workspaceRoot, input.organizationId, input.projectId),
+    input.workspaceRoot,
+    buildWorkspaceRootPath(input.workspaceRoot, input.organizationId, input.projectId),
   );
-
-  await mkdir(rootPath, { recursive: true });
-
-  for (const directory of DEFAULT_DIRECTORIES) {
-    await mkdir(resolve(rootPath, directory), { recursive: true });
-  }
 
   const provisionalRoot =
     existingRoot ??

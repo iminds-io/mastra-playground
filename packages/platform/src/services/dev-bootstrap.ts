@@ -54,6 +54,7 @@ export async function bootstrapProjectForPrincipal(input: {
     requestedBy: user.id,
     activeAgentRef: 'default',
     activeAgentVersion: 'v1',
+    workspaceRoot: env.workspaceRoot,
   });
 
   const defaultChannel = await createProjectChannel({

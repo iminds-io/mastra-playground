@@ -1,11 +1,11 @@
-import { rm } from 'node:fs/promises';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { pool } from '../../src/db/client';
 import { createOrganization } from '../../src/db/repositories/organizations';
 import { createProject } from '../../src/db/repositories/projects';
 import { createWorkspaceRoot, getActiveWorkspaceRootByProjectId } from '../../src/db/repositories/workspace-roots';
 import { reconcileWorkspaceForProject } from '../../src/workspace/reconciliation';
+import { setWorkspaceFactory } from '../../src/workspace/workspace-context';
 
 describe('reconcileWorkspaceForProject', () => {
   beforeEach(async () => {
@@ -26,7 +26,19 @@ describe('reconcileWorkspaceForProject', () => {
     `);
   });
 
+  afterEach(() => {
+    setWorkspaceFactory(undefined as any);
+  });
+
   it('marks the workspace root as error when the directory is missing', async () => {
+    setWorkspaceFactory(async () => ({
+      filesystem: {
+        exists: async () => {
+          throw new Error('Directory not found');
+        },
+      },
+    }) as any);
+
     const organization = await createOrganization({
       name: 'Demo Org',
       firebaseProjectId: 'mindmap-aff6a',
@@ -42,8 +54,6 @@ describe('reconcileWorkspaceForProject', () => {
       rootPath: '/Users/pureicis/dev/mastra-playground/hono-workspace/var/workspaces/missing-root',
       status: 'ready',
     });
-
-    await rm(root.root_path, { recursive: true, force: true });
 
     const result = await reconcileWorkspaceForProject(project.id);
     const updatedRoot = await getActiveWorkspaceRootByProjectId(project.id);

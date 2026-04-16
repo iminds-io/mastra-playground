@@ -1,7 +1,6 @@
-import { access } from 'node:fs/promises';
-
 import { getActiveWorkspaceRootByProjectId, updateWorkspaceRootStatus } from '../db/repositories/workspace-roots';
 import { recordWorkspaceEvent } from '../services/audit';
+import { getWorkspaceFactory } from './workspace-context';
 
 export async function reconcileWorkspaceForProject(projectId: string) {
   const root = await getActiveWorkspaceRootByProjectId(projectId);
@@ -11,7 +10,9 @@ export async function reconcileWorkspaceForProject(projectId: string) {
   }
 
   try {
-    await access(root.root_path);
+    const factory = getWorkspaceFactory();
+    const workspace = await factory(root.root_path);
+    await workspace.filesystem.exists('/');
 
     return root;
   } catch {

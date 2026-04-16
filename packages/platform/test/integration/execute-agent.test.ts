@@ -64,6 +64,7 @@ describe('executeProjectAgent', () => {
       requestedBy: user.id,
       activeAgentRef: 'default',
       activeAgentVersion: 'v1',
+      workspaceRoot: '/Users/pureicis/dev/mastra-playground/hono-workspace/var/workspaces',
     });
 
     const result = await executeProjectAgent(
