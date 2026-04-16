@@ -1,6 +1,5 @@
 export * from './auth/claims';
 export * from './auth/firebase-token-verifier';
-export * from './db/client';
 export * from './db/context';
 export * from './db/repositories/memberships';
 export * from './db/repositories/project-channels';

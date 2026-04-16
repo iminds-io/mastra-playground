@@ -2,7 +2,7 @@ import { rm } from 'node:fs/promises';
 
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { pool } from '@hono-workspace/platform';
+import { pool } from '@hono-workspace/platform/node';
 
 import { createApp } from '../../src/server/factory';
 
