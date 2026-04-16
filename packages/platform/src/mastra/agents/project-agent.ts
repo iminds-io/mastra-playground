@@ -6,20 +6,25 @@ import type { ProjectAgentRequestContext } from '../execution/request-context';
 
 const DEFAULT_OPENROUTER_MODEL = 'openai/gpt-4.1-mini';
 
-function resolveProjectAgentModel() {
-  const apiKey = process.env.OPENROUTER_API_KEY;
+export type ProjectAgentConfig = {
+  openrouterApiKey?: string | undefined;
+  openrouterModel?: string | undefined;
+};
+
+function resolveProjectAgentModel(config: ProjectAgentConfig = {}) {
+  const apiKey = config.openrouterApiKey ?? process.env.OPENROUTER_API_KEY;
 
   if (!apiKey) {
     throw new Error('OPENROUTER_API_KEY is required to execute the project agent.');
   }
 
   const provider = createOpenRouter({ apiKey });
-  const modelId = process.env.OPENROUTER_MODEL ?? DEFAULT_OPENROUTER_MODEL;
+  const modelId = config.openrouterModel ?? process.env.OPENROUTER_MODEL ?? DEFAULT_OPENROUTER_MODEL;
 
   return provider.chat(modelId);
 }
 
-export function createProjectAgent() {
+export function createProjectAgent(config: ProjectAgentConfig = {}) {
   return new Agent<'project-agent', never, undefined, ProjectAgentRequestContext>({
     id: 'project-agent',
     name: 'Project Agent',
@@ -32,7 +37,7 @@ export function createProjectAgent() {
       `Current organization ID: ${requestContext.get('organizationId')}`,
       `Caller role: ${requestContext.get('role')}`,
     ].join('\n'),
-    model: () => resolveProjectAgentModel(),
+    model: () => resolveProjectAgentModel(config),
     memory: new Memory(),
     workspace: ({ requestContext }) => requestContext.get('workspace'),
   });

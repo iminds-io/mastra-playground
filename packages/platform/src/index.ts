@@ -10,6 +10,7 @@ export * from './db/repositories/users';
 export * from './db/repositories/channel-threads';
 export * from './db/repositories/workspace-bindings';
 export * from './db/repositories/workspace-roots';
+export * from './mastra/agents/project-agent';
 export * from './mastra/create-mastra';
 export * from './mastra/execution/execute-agent';
 export * from './services/access-control';
