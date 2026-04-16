@@ -2,7 +2,7 @@
 // ABOUTME: Neon serverless DB and R2-backed workspace filesystem.
 
 import { Hono } from 'hono';
-import { Pool, neonConfig } from '@neondatabase/serverless';
+import { neon } from '@neondatabase/serverless';
 import { S3Filesystem } from '@mastra/s3';
 import { Workspace } from '@mastra/core/workspace';
 
@@ -52,15 +52,21 @@ type HonoEnv = {
   };
 };
 
-let booted = false;
-let mastraInstance: ReturnType<typeof createMastra>;
+// Create a fresh DatabasePool adapter backed by @neondatabase/serverless's HTTP client.
+// Each call is a stateless HTTP query, so the adapter can be created per request
+// (required by CF Workers, which forbid sharing I/O objects across requests).
+function createNeonHttpPool(connectionString: string) {
+  const sql = neon(connectionString);
+  return {
+    async query<T = any>(text: string, values?: unknown[]) {
+      const rows = (await sql.query(text, values)) as T[];
+      return { rows, rowCount: rows.length };
+    },
+  };
+}
 
-function boot(env: Env) {
-  if (booted) return;
-
-  neonConfig.webSocketConstructor = WebSocket;
-  const pool = new Pool({ connectionString: env.DATABASE_URL });
-  setDatabasePool(pool);
+function bootRequest(env: Env) {
+  setDatabasePool(createNeonHttpPool(env.DATABASE_URL));
 
   setWorkspaceFactory(async (basePath: string) => {
     const filesystem = new S3Filesystem({
@@ -76,19 +82,17 @@ function boot(env: Env) {
     return workspace;
   });
 
-  mastraInstance = createMastra(env.DATABASE_URL, {
+  return createMastra(env.DATABASE_URL, {
     openrouterApiKey: env.OPENROUTER_API_KEY,
     openrouterModel: env.OPENROUTER_MODEL,
   });
-
-  booted = true;
 }
 
 const app = new Hono<HonoEnv>();
 
 app.use('*', async (c, next) => {
-  boot(c.env);
-  c.set('mastra', mastraInstance);
+  const mastra = bootRequest(c.env);
+  c.set('mastra', mastra);
   await next();
 });
 
