@@ -7,6 +7,7 @@ export default defineConfig({
   test: {
     include: ['test/smoke/**/*.smoke.test.ts'],
     exclude: ['**/node_modules/**', '**/dist/**'],
+    setupFiles: ['test/smoke/setup-env.ts'],
     hookTimeout: 60_000,
     testTimeout: 30_000,
   },
