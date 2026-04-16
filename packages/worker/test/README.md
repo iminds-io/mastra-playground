@@ -18,53 +18,52 @@ All read from the repo root `.env` (gitignored). See `.env.example` for the cano
 | Variable | Required for |
 |----------|--------------|
 | `NEON_API_KEY`, `NEON_PROJECT_ID` | integration, e2e |
-| `DATABASE_URL`, `DATABASE_URL_POOLED` | integration (used as parent for branching) |
+| `DATABASE_URL` | integration (used as parent for branching) |
 | `GOOGLE_APPLICATION_CREDENTIALS` | e2e, smoke |
 | `FIREBASE_PROJECT_ID`, `FIREBASE_TOKEN` | e2e, smoke |
 | `OPENROUTER_API_KEY` | integration (Mastra tests), e2e |
 | `R2_*` (ACCOUNT_ID, ACCESS_KEY_ID, SECRET_ACCESS_KEY, BUCKET_NAME) | e2e |
 | `SMOKE_BASE_URL` | smoke |
-| `SMOKE_REQUIRES_MIGRATED_DB=true` | smoke (opts into DB-writing smoke tests) |
+| `SMOKE_REQUIRES_MIGRATED_DB=true` | smoke (opt in to DB-writing smoke tests) |
 
-Tests that require an unavailable var use `describe.skipIf(...)` and silently pass-through, so missing creds don't crash CI.
+Tests that require an unavailable var use `describe.skipIf(...)` and silently skip, so missing creds don't crash CI.
 
 ## How the layers isolate themselves
 
-- **Integration** creates a Neon branch in `globalSetup`, runs migrations (into `neondb` because the parent's custom DB is owned by a different role), sets `DATABASE_URL` to it, deletes the branch in teardown.
+- **Integration** creates a Neon branch in `globalSetup`, runs platform migrations, runs Mastra's DDL via `initMastraSchema()`, sets `DATABASE_URL` to the branch, deletes the branch in teardown.
 - **E2E** does the same plus a unique R2 prefix (`e2e-runs/${uuid}/`), writes `.dev.vars.test`, spawns wrangler dev, kills it and cleans up on exit.
-- **Smoke** creates Firebase test users for auth; created users are deleted in `afterAll`.
-
-## Known blockers
-
-### @mastra/pg + CF Workers
-
-The `PostgresStore` from `@mastra/pg` creates its own internal `pg.Pool` which doesn't work correctly inside CF Workers (even with `nodejs_compat`). Concretely:
-
-- The bootstrap path (only touches our Neon-HTTP-backed platform repositories) works.
-- Any route that touches Mastra memory (posts, messages, streaming) hangs.
-
-This is documented as a separate blocker. The following E2E tests are skipped until resolved:
-- `happy-path.e2e.test.ts` → "worker happy path (Mastra)" describe block
-- `streaming.e2e.test.ts` (entire file)
-
-The SSE stream ordering and Mastra persistence ARE verified at the integration layer
-(`platform/test/integration/stream-channel-reply.integration.test.ts`,
-`platform/test/integration/execute-agent.integration.test.ts`) against real Mastra running in Node.js
-— so we know the application logic is correct, and the remaining gap is purely the CF Workers + `@mastra/pg` compatibility issue.
-
-### Production DB schema
-
-The deployed worker's `DATABASE_URL` points to `mindcloud-test-01`, which has not yet
-had platform migrations applied. As a result, smoke tests that query production tables
-are gated on `SMOKE_REQUIRES_MIGRATED_DB=true`. Run migrations against production
-(as the owning role `cl-admin-01`) to unblock the full smoke suite.
+- **Smoke** creates Firebase test users for auth; created users are deleted in `afterAll`. Smoke writes persist in the deployed worker's DB — see bootstrap.smoke.test.ts note.
 
 ## Cleanup discipline
 
-The E2E test harness treats cleanup failures as test failures. Keep an eye on
-`console.neon.tech` (branches), Firebase Auth (users), and R2 (`e2e-runs/` prefix) if you're seeing
-test runs pile up. All leaks eventually get garbage-collected, but loud fast feedback is better than
-silent slow waste.
+Cleanup failures fail the test run. Keep an eye on `console.neon.tech` (branches), Firebase Auth (users), and R2 (`e2e-runs/` prefix) for leaks.
+
+## Mastra on Cloudflare Workers
+
+Using `@mastra/pg` on CF Workers required three coordinated fixes (see commit `d2dce2f`):
+
+1. **Pool injection**: use `@neondatabase/serverless`'s `Pool` (extends `pg.Pool`) instead of letting `PostgresStore` construct its own. pg's CF transport creates a `CloudflareSocket` that cannot cross request boundaries.
+2. **`observationalMemory: false`**: Mastra Memory's default observational async buffering schedules writes past the request lifetime. On CF Workers, those late writes touch the shared pool and cause "Cannot perform I/O on behalf of a different request" errors.
+3. **`disableInit: true` + out-of-band init**: `PostgresStore.init()` runs DDL including `ALTER TABLE`. Two concurrent requests would race and deadlock on `mastra_scorers`. We disable init at runtime and call `initMastraSchema()` once via the E2E orchestrator (and once in the production migration workflow).
+
+## Production migration
+
+The deployed worker's DATABASE_URL targets `mindcloud-test-01` (owned by `cl-admin-01`), while the runtime connects as `neondb_owner`. To apply schema updates:
+
+```bash
+# 1. Get cl-admin-01's current password (or rotate and capture the new one)
+node --import tsx packages/worker/scripts/rotate-cladmin-password.ts   # TODO: build this helper
+
+# 2. Run platform migrations
+DATABASE_URL='postgresql://cl-admin-01:<pw>@<host>/mindcloud-test-01?sslmode=require&channel_binding=require' \
+  pnpm --filter @hono-workspace/platform db:migrate
+
+# 3. Init Mastra schema (one-time; disableInit: true prevents runtime init)
+node --import tsx -e "
+import { initMastraSchema } from '@hono-workspace/platform';
+await initMastraSchema('postgresql://cl-admin-01:<pw>@<host>/mindcloud-test-01?sslmode=require&channel_binding=require');
+"
+```
 
 ## Troubleshooting
 
@@ -72,8 +71,9 @@ silent slow waste.
 - **`Neon createBranch failed: 401`** — `NEON_API_KEY` is wrong or expired. Regenerate at https://console.neon.tech.
 - **`signInWithCustomToken failed: 400`** — `FIREBASE_TOKEN` (the web API key) is wrong, or the service account project doesn't match.
 - **`OPENROUTER_API_KEY is required...`** — model-dependent integration tests skipped on CI by default. Set the env var locally to run them.
-- **`permission denied for schema public`** — happens when migrating the parent's custom DB from a role that doesn't own it. Our `test-db.ts` targets the default `neondb` DB (owned by `neondb_owner`) to sidestep this.
-- **`Cannot perform I/O on behalf of a different request`** — a Neon `Pool` or other CF resource is being shared across requests. The worker must create I/O objects fresh per-request.
+- **`permission denied for schema public`** — happens when migrating the parent's custom DB from a role that doesn't own it. Our `test-db.ts` targets the default `neondb` DB (owned by `neondb_owner`) to sidestep this. For production migrations, run as `cl-admin-01`.
+- **`deadlock detected` during Mastra DDL** — two concurrent requests triggered `PostgresStore.init()`. Ensure `disableInit: true` and run `initMastraSchema()` once out-of-band.
+- **`cannot perform I/O on behalf of a different request`** — a pool or WebSocket is being shared across CF requests. Create I/O objects fresh per-request.
 
 ## Adding a new E2E test
 
