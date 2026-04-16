@@ -46,7 +46,10 @@ export class GoogleSecureTokenKeyStore implements FirebaseSigningKeyStore {
       return this.cached.certificates;
     }
 
-    const response = await this.fetchImpl(GOOGLE_SECURE_TOKEN_CERTS_URL);
+    // Call via (0, ...) to detach `this` — CF Workers' fetch requires
+    // an undefined or globalThis `this` reference.
+    const doFetch = this.fetchImpl;
+    const response = await doFetch(GOOGLE_SECURE_TOKEN_CERTS_URL);
 
     if (!response.ok) {
       throw new Error(`Failed to load Firebase signing certificates: ${response.status}`);

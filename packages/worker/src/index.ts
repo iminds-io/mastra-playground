@@ -116,7 +116,8 @@ app.use('/api/*', async (c, next) => {
       name: decoded.name ?? null,
     });
     await next();
-  } catch {
+  } catch (error) {
+    console.error('[auth] token verification failed:', error);
     return c.json({ error: 'Invalid token' }, 401);
   }
 });
