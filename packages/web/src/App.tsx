@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 
+import { Badge, Button, Card, Input, cn, Textarea } from '@hono-workspace/ui';
+
 import {
   bootstrapProject,
   createChannelPost,
   createProjectChannel,
   getChannelThread,
   getMe,
-  getWorkspace,
   listAccessibleProjects,
   listChannelFeed,
   listProjectChannels,
@@ -18,7 +19,7 @@ import {
   type ThreadMessage,
   type ThreadSummary,
 } from './api';
-import { auth, onAuthStateChanged, signInWithGoogle, signOutUser } from './firebase';
+import { auth, onAuthStateChanged, signInWithEmailPassword, signInWithGoogle, signOutUser } from './firebase';
 import './styles.css';
 
 type AuthUser = {
@@ -100,6 +101,17 @@ export function App() {
   const [lastError, setLastError] = useState('');
   const [isLoading, setIsLoading] = useState<string | null>(null);
 
+  // Dev-only test-credentials sign-in. Pre-fill from Vite env vars so the
+  // buttons can authenticate against a deployed worker via the dev-server proxy
+  // without a Google account. The whole panel is conditionally rendered on
+  // `import.meta.env.DEV`, so production builds never contain it.
+  const [testEmail, setTestEmail] = useState(
+    (import.meta.env.VITE_FIREBASE_TEST_EMAIL as string | undefined) ?? '',
+  );
+  const [testPassword, setTestPassword] = useState(
+    (import.meta.env.VITE_FIREBASE_TEST_PASSWORD as string | undefined) ?? '',
+  );
+
   const [projects, setProjects] = useState<AccessibleProjectSummary[]>([]);
   const [channels, setChannels] = useState<ChannelSummary[]>([]);
   const [selectedChannelId, setSelectedChannelId] = useState('');
@@ -111,14 +123,9 @@ export function App() {
   const [replyMessage, setReplyMessage] = useState('');
   const [streamingReply, setStreamingReply] = useState('');
 
-  const currentProjectId = route.name === 'chat' ? route.projectId : projectId;
   const selectedChannel = useMemo(
     () => channels.find((channel) => channel.id === selectedChannelId) ?? null,
     [channels, selectedChannelId],
-  );
-  const currentProject = useMemo(
-    () => projects.find((project) => project.id === currentProjectId) ?? null,
-    [projects, currentProjectId],
   );
 
   useEffect(() => {
@@ -181,6 +188,18 @@ export function App() {
     void handleLoadFeed(route.projectId, selectedChannelId);
   }, [user, route, selectedChannelId]);
 
+  async function handleTestSignIn() {
+    setIsLoading('test-sign-in');
+    setLastError('');
+    try {
+      await signInWithEmailPassword(testEmail, testPassword);
+    } catch (error) {
+      setLastError(String(error));
+    } finally {
+      setIsLoading(null);
+    }
+  }
+
   async function handleGetMe() {
     if (!user) {
       return;
@@ -230,23 +249,6 @@ export function App() {
       if (bootstrappedProject) {
         setProjects((current) => mergeProjects(current, [bootstrappedProject]));
       }
-    } catch (error) {
-      setLastError(String(error));
-    } finally {
-      setIsLoading(null);
-    }
-  }
-
-  async function handleGetWorkspace() {
-    if (!user || !projectId) {
-      return;
-    }
-
-    setIsLoading('workspace');
-    setLastError('');
-    try {
-      const result = await getWorkspace(user, projectId);
-      setWorkspaceResult(JSON.stringify(result, null, 2));
     } catch (error) {
       setLastError(String(error));
     } finally {
@@ -501,67 +503,65 @@ export function App() {
   if (route.name === 'chat') {
     return (
       <main className="workspace-shell">
-        <aside className="workspace-rail">
-          <div className="workspace-brand">
+        <aside className="sidebar">
+          <div className="sidebar-brand">
             <p className="eyebrow">Hono Workspace</p>
             <h1>Workspaces</h1>
           </div>
 
           <nav className="workspace-list" aria-label="Projects">
             {projects.map((project) => (
-              <button
-                key={project.id}
-                className={project.id === route.projectId ? 'workspace-button workspace-button-active' : 'workspace-button'}
-                onClick={() => navigate(`/chat/${project.id}`)}
-              >
-                <span className="workspace-button-name">{project.name}</span>
-                <span className="workspace-button-slug">{project.slug}</span>
-              </button>
+              <div key={project.id}>
+                <button
+                  className={project.id === route.projectId ? 'workspace-button workspace-button-active' : 'workspace-button'}
+                  onClick={() => navigate(`/chat/${project.id}`)}
+                >
+                  <span className="workspace-button-name">{project.name}</span>
+                  <span className="workspace-button-slug">{project.slug}</span>
+                </button>
+
+                {project.id === route.projectId && (
+                  <div className="workspace-channels">
+                    <nav className="channel-list" aria-label="Channels">
+                      {channels.map((channel) => (
+                        <button
+                          key={channel.id}
+                          className={channel.id === selectedChannelId ? 'channel-button channel-button-active' : 'channel-button'}
+                          onClick={() => setSelectedChannelId(channel.id)}
+                        >
+                          <span className="channel-hash">#</span>
+                          <span>{channel.name}</span>
+                        </button>
+                      ))}
+                    </nav>
+
+                    <div className="workspace-channels-actions">
+                      <Input
+                        value={newChannelName}
+                        onChange={(event) => setNewChannelName(event.target.value)}
+                        placeholder="new channel"
+                        aria-label="New channel name"
+                      />
+                      <Button
+                        onClick={() => void handleCreateChannel()}
+                        disabled={!user || !route.projectId || isLoading === 'create-channel'}
+                        size="sm"
+                      >
+                        Add
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
             ))}
           </nav>
 
-          <div className="workspace-rail-actions">
-            <button onClick={() => navigate('/admin/test')}>Admin Test Console</button>
-            <button onClick={() => void signOutUser()} disabled={!user}>
+          <div className="sidebar-actions">
+            <Button variant="outline" size="sm" onClick={() => navigate('/admin/test')}>Admin Console</Button>
+            <Button variant="outline" size="sm" onClick={() => void signOutUser()} disabled={!user}>
               Sign out
-            </button>
+            </Button>
           </div>
-        </aside>
-
-        <aside className="channels-sidebar">
-          <header className="sidebar-header">
-            <p className="eyebrow">Project</p>
-            <h2>{currentProject?.name ?? route.projectId}</h2>
-          </header>
-
-          <label className="field">
-            <span>Create channel</span>
-            <input
-              value={newChannelName}
-              onChange={(event) => setNewChannelName(event.target.value)}
-              placeholder="engineering"
-            />
-          </label>
-
-          <button
-            onClick={() => void handleCreateChannel()}
-            disabled={!user || !route.projectId || isLoading === 'create-channel'}
-          >
-            Add channel
-          </button>
-
-          <nav className="channel-list" aria-label="Channels">
-            {channels.map((channel) => (
-              <button
-                key={channel.id}
-                className={channel.id === selectedChannelId ? 'channel-button channel-button-active' : 'channel-button'}
-                onClick={() => setSelectedChannelId(channel.id)}
-              >
-                <span className="channel-hash">#</span>
-                <span>{channel.name}</span>
-              </button>
-            ))}
-          </nav>
         </aside>
 
         <section className="channel-feed">
@@ -580,7 +580,7 @@ export function App() {
               <p className="empty-state">No channel posts yet.</p>
             ) : (
               feedPosts.map((post) => (
-                <article key={post.threadId} className="feed-card">
+                <Card key={post.threadId} className="overflow-hidden">
                   <button
                     className="feed-card-button"
                     onClick={() => void handleOpenThread(post.threadId)}
@@ -588,11 +588,11 @@ export function App() {
                   >
                     <p className="feed-card-text">{post.rootMessageText}</p>
                     <div className="feed-card-meta">
-                      <span>{formatReplyCount(post.replyCount)}</span>
+                      <Badge variant="muted">{formatReplyCount(post.replyCount)}</Badge>
                       <span>{post.lastMessageAt ? new Date(post.lastMessageAt).toLocaleString() : 'Just now'}</span>
                     </div>
                   </button>
-                </article>
+                </Card>
               ))
             )}
           </div>
@@ -600,7 +600,7 @@ export function App() {
           <div className="composer-panel">
             <label className="field">
               <span>Start a post</span>
-              <textarea
+              <Textarea
                 aria-label="Start a post"
                 value={newPostMessage}
                 onChange={(event) => setNewPostMessage(event.target.value)}
@@ -609,12 +609,12 @@ export function App() {
               />
             </label>
 
-            <button
+            <Button
               onClick={() => void handleCreatePost()}
               disabled={!user || !selectedChannelId || isLoading === 'create-post'}
             >
               {`Send to ${selectedChannel?.name ?? 'channel'}`}
-            </button>
+            </Button>
           </div>
         </section>
 
@@ -634,23 +634,29 @@ export function App() {
               <p className="empty-state">No thread selected.</p>
             ) : (
               threadMessages.map((entry) => (
-                <article key={entry.id} className={`thread-message thread-message-${entry.role}`}>
+                <Card
+                  key={entry.id}
+                  className={cn(
+                    'p-4',
+                    entry.role === 'user' ? 'bg-muted/40 border-border/50' : 'bg-primary/10 border-primary/20',
+                  )}
+                >
                   <p className="thread-message-role">{entry.role}</p>
-                  <p>{entry.text}</p>
-                </article>
+                  <p style={{ margin: 0 }}>{entry.text}</p>
+                </Card>
               ))
             )}
             {streamingReply ? (
-              <article className="thread-message thread-message-assistant thread-message-streaming">
+              <Card className={cn('p-4 thread-message-streaming', 'bg-primary/10 border-primary/20')}>
                 <p className="thread-message-role">assistant</p>
-                <p>{streamingReply}</p>
-              </article>
+                <p style={{ margin: 0 }}>{streamingReply}</p>
+              </Card>
             ) : null}
           </div>
 
           <label className="field">
             <span>Reply in thread</span>
-            <textarea
+            <Textarea
               aria-label="Reply in thread"
               value={replyMessage}
               onChange={(event) => setReplyMessage(event.target.value)}
@@ -659,12 +665,12 @@ export function App() {
             />
           </label>
 
-          <button
+          <Button
             onClick={() => void handleReplyInThread()}
             disabled={!selectedThread || isLoading === 'reply'}
           >
             Reply in thread
-          </button>
+          </Button>
 
           <div className="thread-debug">
             <h3>Status</h3>
@@ -685,35 +691,67 @@ export function App() {
         </p>
 
         <div className="control-row">
-          <button onClick={() => void signInWithGoogle()} disabled={Boolean(user)}>
+          <Button onClick={() => void signInWithGoogle()} disabled={Boolean(user)}>
             Sign in with Google
-          </button>
-          <button onClick={() => void signOutUser()} disabled={!user}>
+          </Button>
+          <Button onClick={() => void signOutUser()} disabled={!user}>
             Sign out
-          </button>
-          <button onClick={() => void handleGetMe()} disabled={!user || isLoading === 'me'}>
+          </Button>
+          <Button onClick={() => void handleGetMe()} disabled={!user || isLoading === 'me'}>
             GET /api/me
-          </button>
+          </Button>
         </div>
+
+        {import.meta.env.DEV ? (
+          <fieldset className="field">
+            <legend>Test credentials (dev only)</legend>
+            <label className="field">
+              <span>Email</span>
+              <Input
+                type="email"
+                value={testEmail}
+                onChange={(event) => setTestEmail(event.target.value)}
+                autoComplete="off"
+              />
+            </label>
+            <label className="field">
+              <span>Password</span>
+              <Input
+                type="password"
+                value={testPassword}
+                onChange={(event) => setTestPassword(event.target.value)}
+                autoComplete="off"
+              />
+            </label>
+            <div className="control-row">
+              <Button
+                onClick={() => void handleTestSignIn()}
+                disabled={Boolean(user) || !testEmail || !testPassword || isLoading === 'test-sign-in'}
+              >
+                Sign in with test credentials
+              </Button>
+            </div>
+          </fieldset>
+        ) : null}
 
         <label className="field">
           <span>Authenticated user</span>
-          <input value={user?.email ?? 'Not signed in'} readOnly />
+          <Input value={user?.email ?? 'Not signed in'} readOnly />
         </label>
 
         <label className="field">
           <span>New project name</span>
-          <input value={projectName} onChange={(event) => setProjectName(event.target.value)} />
+          <Input value={projectName} onChange={(event) => setProjectName(event.target.value)} />
         </label>
 
         <div className="control-row">
-          <button
+          <Button
             onClick={() => void handleBootstrapProject()}
             disabled={!user || isLoading === 'bootstrap'}
           >
             Create Demo Project
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={() => {
               if (projectId) {
                 navigate(`/chat/${projectId}`);
@@ -722,26 +760,17 @@ export function App() {
             disabled={!projectId}
           >
             Open Chat Workspace
-          </button>
+          </Button>
         </div>
 
         <label className="field">
           <span>Project ID</span>
-          <input value={projectId} onChange={(event) => setProjectId(event.target.value)} />
+          <Input value={projectId} onChange={(event) => setProjectId(event.target.value)} />
         </label>
-
-        <div className="control-row">
-          <button
-            onClick={() => void handleGetWorkspace()}
-            disabled={!user || !projectId || isLoading === 'workspace'}
-          >
-            GET workspace
-          </button>
-        </div>
 
         <label className="field">
           <span>Message</span>
-          <textarea
+          <Textarea
             aria-label="Message"
             value={adminMessage}
             onChange={(event) => setAdminMessage(event.target.value)}
@@ -750,12 +779,12 @@ export function App() {
         </label>
 
         <div className="control-row">
-          <button
+          <Button
             onClick={() => void handleRunAdminTest()}
             disabled={!user || !projectId || isLoading === 'admin-test'}
           >
             Run Admin Test
-          </button>
+          </Button>
         </div>
       </section>
 
@@ -780,8 +809,8 @@ export function App() {
           <pre>{meResult || 'No profile request yet.'}</pre>
         </article>
         <article>
-          <h2>Workspace</h2>
-          <pre>{workspaceResult || 'No workspace request yet.'}</pre>
+          <h2>Bootstrap response</h2>
+          <pre>{workspaceResult || 'No bootstrap request yet.'}</pre>
         </article>
         <article>
           <h2>Admin Test</h2>

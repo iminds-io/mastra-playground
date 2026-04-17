@@ -2,12 +2,9 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "jsx": "react-jsx",
-    "lib": ["DOM", "DOM.Iterable", "ES2023"],
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "types": ["vite/client"],
-    "paths": {
-      "@hono-workspace/ui": ["../ui/src/index.ts"],
-      "@hono-workspace/ui/styles.css": ["../ui/src/styles.css"]
-    }
+    "noUncheckedIndexedAccess": false
   },
   "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"]
 }

@@ -1,101 +1,17 @@
-:root {
-  font-family:
-    "IBM Plex Sans",
-    "Helvetica Neue",
-    sans-serif;
-  color: #f4f1ea;
-  background:
-    radial-gradient(circle at top left, rgba(53, 145, 255, 0.18), transparent 28%),
-    radial-gradient(circle at bottom right, rgba(255, 145, 77, 0.14), transparent 26%),
-    #17181d;
-  color-scheme: dark;
-}
+/* ABOUTME: App-level styles for packages/web */
+/* ABOUTME: Imports design system tokens then defines structural layout rules */
 
-* {
-  box-sizing: border-box;
-}
+@import "@hono-workspace/ui/styles.css";
 
+/* ─── App background ─────────────────────────────────────────────────────── */
 body {
-  margin: 0;
-  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left,  oklch(0.55 0.22 250 / 0.18), transparent 28%),
+    radial-gradient(circle at bottom right, oklch(0.75 0.14 55 / 0.14), transparent 26%),
+    var(--background);
 }
 
-button,
-input,
-textarea {
-  font: inherit;
-}
-
-button {
-  border: 0;
-  border-radius: 0.95rem;
-  padding: 0.75rem 1rem;
-  background: #f4f1ea;
-  color: #17181d;
-  cursor: pointer;
-  transition:
-    background 160ms ease,
-    color 160ms ease,
-    transform 160ms ease;
-}
-
-button:hover:not(:disabled) {
-  transform: translateY(-1px);
-}
-
-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
-}
-
-input,
-textarea,
-pre {
-  width: 100%;
-  border-radius: 1rem;
-  border: 1px solid rgba(244, 241, 234, 0.08);
-  background: rgba(18, 20, 25, 0.92);
-  color: inherit;
-  padding: 0.95rem 1rem;
-}
-
-textarea {
-  resize: vertical;
-}
-
-pre {
-  min-height: 8rem;
-  overflow: auto;
-  white-space: pre-wrap;
-}
-
-.eyebrow {
-  margin: 0;
-  color: #f4a261;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  font-size: 0.72rem;
-}
-
-.lede,
-.thread-subtitle,
-.channel-status,
-.workspace-button-slug,
-.empty-state {
-  color: rgba(244, 241, 234, 0.68);
-}
-
-.field {
-  display: grid;
-  gap: 0.5rem;
-}
-
-.control-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-}
-
+/* ─── Shell layouts ──────────────────────────────────────────────────────── */
 .admin-shell {
   display: grid;
   grid-template-columns: minmax(340px, 430px) minmax(360px, 1fr);
@@ -106,24 +22,268 @@ pre {
 
 .workspace-shell {
   display: grid;
-  grid-template-columns: 15rem 18rem minmax(0, 1fr) 24rem;
+  grid-template-columns: 20rem minmax(0, 1fr) 24rem;
   min-height: 100vh;
 }
 
-.panel,
-.workspace-rail,
-.channels-sidebar,
-.channel-feed,
-.thread-drawer {
-  backdrop-filter: blur(20px);
-  background: rgba(16, 18, 24, 0.88);
-  border-right: 1px solid rgba(244, 241, 234, 0.06);
+/* ─── Sidebar ────────────────────────────────────────────────────────────── */
+.sidebar {
+  background: var(--sidebar);
+  border-right: 1px solid var(--sidebar-border);
+  padding: 1.1rem;
+  display: grid;
+  gap: 1rem;
+  align-content: start;
 }
 
+.sidebar-brand {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.sidebar-brand h1 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.eyebrow {
+  margin: 0;
+  color: var(--primary);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.72rem;
+  font-family: var(--font-heading);
+}
+
+.sidebar-actions {
+  display: grid;
+  gap: 0.7rem;
+  margin-top: auto;
+}
+
+.workspace-list {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.workspace-button {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  color: inherit;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  padding: 0.65rem 0.85rem;
+  cursor: pointer;
+  transition: background 160ms ease;
+}
+
+.workspace-button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.workspace-button-active {
+  background: oklch(from var(--primary) l c h / 0.18);
+  border-color: oklch(from var(--primary) l c h / 0.2);
+}
+
+.workspace-button-name {
+  display: block;
+  font-weight: 600;
+  font-family: var(--font-heading);
+  font-size: 0.9rem;
+}
+
+.workspace-button-slug {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+.workspace-channels {
+  display: grid;
+  gap: 0.2rem;
+  margin: 0.3rem 0 0.4rem 0.85rem;
+  padding-left: 0.75rem;
+  border-left: 2px solid oklch(from var(--primary) l c h / 0.28);
+}
+
+.workspace-channels-actions {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.4rem;
+  align-items: center;
+  margin-top: 0.3rem;
+}
+
+.channel-list {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.channel-button {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  color: inherit;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  padding: 0.45rem 0.85rem;
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: background 160ms ease;
+}
+
+.channel-button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.channel-button-active {
+  background: oklch(from var(--primary) l c h / 0.18);
+  border-color: oklch(from var(--primary) l c h / 0.2);
+}
+
+.channel-hash {
+  color: var(--muted-foreground);
+}
+
+/* ─── Channel feed ───────────────────────────────────────────────────────── */
+.channel-feed {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-height: 100vh;
+  padding: 1.1rem 1.2rem;
+  gap: 1rem;
+  border-right: 1px solid var(--border);
+  background: oklch(from var(--background) l c h / 0.88);
+  backdrop-filter: blur(20px);
+}
+
+.channel-feed-header {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.channel-feed-header h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.channel-status {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted-foreground);
+}
+
+.feed-list {
+  display: grid;
+  gap: 0.7rem;
+  align-content: start;
+  min-height: 0;
+  overflow: auto;
+}
+
+.feed-card-text {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.45;
+}
+
+.feed-card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.85rem;
+  color: var(--muted-foreground);
+  font-size: 0.86rem;
+}
+
+.composer-panel {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.field {
+  display: grid;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--muted-foreground);
+}
+
+.lede {
+  margin: 0;
+  color: var(--muted-foreground);
+}
+
+/* ─── Thread drawer ──────────────────────────────────────────────────────── */
+.thread-drawer {
+  background: var(--sidebar);
+  border-left: 1px solid var(--sidebar-border);
+  padding: 1.1rem;
+  display: grid;
+  gap: 1rem;
+  align-content: start;
+}
+
+.thread-header {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.thread-header h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.thread-subtitle {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted-foreground);
+}
+
+.thread-messages {
+  display: grid;
+  gap: 0.7rem;
+  align-content: start;
+  min-height: 0;
+  overflow: auto;
+}
+
+.thread-message-role {
+  margin: 0 0 0.4rem;
+  color: var(--muted-foreground);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.72rem;
+}
+
+.thread-message-streaming {
+  border-style: dashed !important;
+}
+
+.thread-debug {
+  display: grid;
+  gap: 0.75rem;
+  font-size: 0.8rem;
+  color: var(--muted-foreground);
+}
+
+.empty-state {
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+}
+
+/* ─── Admin panel ────────────────────────────────────────────────────────── */
 .panel {
-  border: 1px solid rgba(244, 241, 234, 0.06);
-  border-radius: 1.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
   padding: 1.4rem;
+  background: oklch(from var(--card) l c h / 0.88);
+  backdrop-filter: blur(20px);
 }
 
 .admin-panel {
@@ -138,182 +298,55 @@ pre {
   align-content: start;
 }
 
-.workspace-rail,
-.channels-sidebar,
-.thread-drawer {
-  padding: 1.1rem;
-  display: grid;
-  gap: 1rem;
-  align-content: start;
+.control-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
 }
 
-.workspace-rail {
-  background: rgba(20, 21, 28, 0.94);
+pre {
+  width: 100%;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--input);
+  color: inherit;
+  padding: 0.95rem 1rem;
+  min-height: 8rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
 }
 
-.workspace-brand,
-.sidebar-header,
-.channel-feed-header,
-.thread-header {
-  display: grid;
-  gap: 0.35rem;
-}
-
-.workspace-list,
-.channel-list,
-.feed-list,
-.thread-messages,
 .admin-project-list {
   display: grid;
   gap: 0.7rem;
-  min-height: 0;
-  overflow: auto;
 }
 
-.workspace-button,
-.channel-button {
-  width: 100%;
-  text-align: left;
-  background: transparent;
-  color: inherit;
-  border: 1px solid transparent;
-}
-
-.workspace-button:hover:not(:disabled),
-.channel-button:hover:not(:disabled),
-.feed-card-button:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.05);
-}
-
-.workspace-button-active,
-.channel-button-active {
-  background: rgba(244, 162, 97, 0.18);
-  border-color: rgba(244, 162, 97, 0.2);
-}
-
-.workspace-button-name {
-  display: block;
-  font-weight: 600;
-}
-
-.channel-button {
-  display: flex;
-  align-items: center;
-  gap: 0.55rem;
-  padding-inline: 0.85rem;
-}
-
-.channel-hash {
-  color: rgba(244, 241, 234, 0.5);
-}
-
-.workspace-rail-actions {
-  display: grid;
-  gap: 0.7rem;
-  margin-top: auto;
-}
-
-.channel-feed {
-  display: grid;
-  grid-template-rows: auto 1fr auto;
-  min-height: 100vh;
-  padding: 1.1rem 1.2rem;
-  gap: 1rem;
-}
-
-.feed-card {
-  border: 1px solid rgba(244, 241, 234, 0.06);
-  border-radius: 1.15rem;
-  background: rgba(28, 31, 39, 0.86);
-}
-
-.feed-card-button {
-  width: 100%;
-  padding: 1rem;
-  background: transparent;
-  color: inherit;
-  text-align: left;
-}
-
-.feed-card-text {
-  margin: 0;
-  font-size: 1rem;
-  line-height: 1.45;
-}
-
-.feed-card-meta {
-  display: flex;
-  justify-content: space-between;
-  gap: 0.75rem;
-  margin-top: 0.85rem;
-  color: rgba(244, 241, 234, 0.56);
-  font-size: 0.86rem;
-}
-
-.composer-panel,
-.thread-debug {
-  display: grid;
-  gap: 0.75rem;
-}
-
-.thread-drawer {
-  background: rgba(12, 14, 18, 0.94);
-}
-
-.thread-messages {
-  align-content: start;
-}
-
-.thread-message {
-  border-radius: 1rem;
-  padding: 0.95rem 1rem;
-  border: 1px solid rgba(244, 241, 234, 0.08);
-}
-
-.thread-message-user {
-  background: rgba(255, 255, 255, 0.03);
-}
-
-.thread-message-assistant {
-  background: rgba(53, 145, 255, 0.1);
-}
-
-.thread-message-streaming {
-  border-style: dashed;
-}
-
-.thread-message-role {
-  margin: 0 0 0.4rem;
-  color: rgba(244, 241, 234, 0.58);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-size: 0.72rem;
-}
-
-@media (max-width: 1280px) {
+/* ─── Responsive breakpoints ─────────────────────────────────────────────── */
+@media (max-width: 1100px) {
   .workspace-shell {
-    grid-template-columns: 13rem 16rem minmax(0, 1fr);
+    grid-template-columns: 18rem minmax(0, 1fr);
   }
 
   .thread-drawer {
     grid-column: 1 / -1;
-    border-top: 1px solid rgba(244, 241, 234, 0.06);
-    border-right: 0;
+    border-top: 1px solid var(--sidebar-border);
+    border-left: 0;
   }
 }
 
-@media (max-width: 920px) {
+@media (max-width: 768px) {
   .admin-shell,
   .workspace-shell {
     grid-template-columns: 1fr;
   }
 
-  .workspace-rail,
-  .channels-sidebar,
+  .sidebar,
   .channel-feed,
   .thread-drawer {
     border-right: 0;
-    border-bottom: 1px solid rgba(244, 241, 234, 0.06);
+    border-bottom: 1px solid var(--border);
   }
 
   .channel-feed {
