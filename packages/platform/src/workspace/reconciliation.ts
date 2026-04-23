@@ -1,8 +1,11 @@
 import { getActiveWorkspaceRootByProjectId, updateWorkspaceRootStatus } from '../db/repositories/workspace-roots';
+import type { WorkspaceFactory } from '../platform-deps';
 import { recordWorkspaceEvent } from '../services/audit';
-import { getWorkspaceFactory } from './workspace-context';
 
-export async function reconcileWorkspaceForProject(projectId: string) {
+export async function reconcileWorkspaceForProject(
+  projectId: string,
+  deps: { workspaceFactory: WorkspaceFactory },
+) {
   const root = await getActiveWorkspaceRootByProjectId(projectId);
 
   if (!root) {
@@ -10,8 +13,10 @@ export async function reconcileWorkspaceForProject(projectId: string) {
   }
 
   try {
-    const factory = getWorkspaceFactory();
-    const workspace = await factory(root.root_path);
+    const workspace = await deps.workspaceFactory(root.root_path);
+    if (!workspace.filesystem) {
+      throw new Error('Workspace filesystem is not configured');
+    }
     await workspace.filesystem.exists('/');
 
     return root;

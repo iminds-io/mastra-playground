@@ -1,20 +1,17 @@
 import { randomUUID } from 'node:crypto';
 
 import type { Mastra } from '@mastra/core';
-import { RequestContext } from '@mastra/core/request-context';
 import type { MastraDBMessage, StorageThreadType } from '@mastra/core/memory';
 
 import { AccessDeniedError } from './access-control';
 import { createProjectChannel, getProjectChannelById, listProjectChannels } from '../db/repositories/project-channels';
 import { getChannelThreadById, listChannelThreads, createChannelThread, updateChannelThreadMetadata } from '../db/repositories/channel-threads';
 import { loadProjectContext } from './project-context';
-import { getWorkspaceFactory } from '../workspace/workspace-context';
+import type { PlatformDeps, WorkspaceFactory } from '../platform-deps';
 import { resolveWorkspaceForProject } from '../workspace/resolver';
-import type { ProjectAgentRequestContext } from '../mastra/execution/request-context';
+import { buildExecutionContext as buildSharedExecutionContext } from '../mastra/execution/build-execution-context';
 
-type ChatServiceDeps = {
-  mastra: Mastra;
-};
+type ChatServiceDeps = PlatformDeps;
 
 export type ChatChannelSummary = {
   id: string;
@@ -212,28 +209,20 @@ async function buildExecutionContext(input: {
   projectContext: Awaited<ReturnType<typeof loadProjectContext>>;
   channelId: string;
   threadId: string;
+  workspaceFactory: WorkspaceFactory;
 }) {
-  const resolvedWorkspace = await resolveWorkspaceForProject(input.projectId);
-  const runtimeWorkspace = await getWorkspaceFactory()(resolvedWorkspace.root.root_path);
-  const requestContext = new RequestContext<ProjectAgentRequestContext>();
-  const resourceId = deriveChannelResourceId(input.channelId);
-
-  requestContext.set('resourceId', input.projectContext.resourceId);
-  requestContext.set('actorUserId', input.projectContext.actorUserId);
-  requestContext.set('organizationId', input.projectContext.organizationId);
-  requestContext.set('projectId', input.projectContext.projectId);
-  requestContext.set('role', input.projectContext.role);
-  requestContext.set('workspace', runtimeWorkspace);
-  requestContext.set('channelId', input.channelId);
-  requestContext.set('currentThreadId', input.threadId);
-  requestContext.set('mastra__resourceId', resourceId);
-  requestContext.set('mastra__threadId', input.threadId);
-
-  return {
-    requestContext,
-    resourceId,
+  const resolvedWorkspace = await resolveWorkspaceForProject(input.projectId, {
+    workspaceFactory: input.workspaceFactory,
+  });
+  return buildSharedExecutionContext({
+    projectContext: input.projectContext,
     workspaceRootPath: resolvedWorkspace.root.root_path,
-  };
+    workspace: resolvedWorkspace.workspace,
+    resourceId: deriveChannelResourceId(input.channelId),
+    threadId: input.threadId,
+    channelId: input.channelId,
+    currentThreadId: input.threadId,
+  });
 }
 
 export async function listProjectChannelsForPrincipal(input: {
@@ -497,6 +486,7 @@ export async function sendChannelMessageForPrincipal(input: {
     projectContext,
     channelId: channel.id,
     threadId: thread.id,
+    workspaceFactory: deps.workspaceFactory,
   });
 
   const output = await deps.mastra.getAgent('projectAgent').generate(input.message, {
@@ -544,6 +534,7 @@ export async function* streamChannelReplyForPrincipal(input: {
     projectContext,
     channelId: channel.id,
     threadId: thread.id,
+    workspaceFactory: deps.workspaceFactory,
   });
   const memoryStore = await getMemoryStore(deps.mastra);
   const messageInput = input.message?.trim()

@@ -122,6 +122,77 @@ describe('authenticated routes', () => {
     });
   });
 
+  it('executes the summarization wrapper for authenticated project summaries', async () => {
+    const app = await createApp({
+      tokenVerifier: {
+        async verifyIdToken() {
+          return verifiedPrincipal;
+        },
+      },
+      summarizeProjectDocs: async ({ projectId, paths, question }) => ({
+        projectId,
+        paths,
+        text: `summary for ${paths.join(', ')}: ${question}`,
+        runId: 'run-456',
+        modelId: 'openai/gpt-4.1-mini',
+      }),
+    });
+
+    const response = await app.request('/api/projects/project-1/summarize', {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer demo-token',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        paths: ['README.md'],
+        question: 'What matters?',
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      projectId: 'project-1',
+      paths: ['README.md'],
+      text: 'summary for README.md: What matters?',
+      runId: 'run-456',
+      modelId: 'openai/gpt-4.1-mini',
+    });
+  });
+
+  it('executes the workspace supervisor wrapper for authenticated project supervision', async () => {
+    const app = await createApp({
+      tokenVerifier: {
+        async verifyIdToken() {
+          return verifiedPrincipal;
+        },
+      },
+      runWorkspaceSupervisor: async ({ projectId, prompt, paths }) => ({
+        projectId,
+        text: `supervised:${prompt}:${paths?.join(',') ?? ''}`,
+        runId: 'run-supervisor',
+        modelId: 'openai/gpt-4.1-mini',
+      }),
+    });
+
+    const response = await app.request('/api/projects/project-1/supervise', {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer demo-token',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ prompt: 'review', paths: ['README.md'] }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      projectId: 'project-1',
+      text: 'supervised:review:README.md',
+      runId: 'run-supervisor',
+      modelId: 'openai/gpt-4.1-mini',
+    });
+  });
+
   it('returns JSON when a protected route throws', async () => {
     const app = await createApp({
       tokenVerifier: {

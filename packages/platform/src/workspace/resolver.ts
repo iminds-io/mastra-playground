@@ -1,8 +1,19 @@
 import { getActiveWorkspaceBinding } from '../db/repositories/workspace-bindings';
 import { getActiveWorkspaceRootByProjectId } from '../db/repositories/workspace-roots';
-import { getWorkspaceFactory } from './workspace-context';
+import type { WorkspaceFactory } from '../platform-deps';
 
-export async function resolveWorkspaceForProject(projectId: string) {
+function requireWorkspaceFactory(value: unknown): asserts value is WorkspaceFactory {
+  if (typeof value !== 'function') {
+    throw new Error('resolveWorkspaceForProject: workspaceFactory is required.');
+  }
+}
+
+export async function resolveWorkspaceForProject(
+  projectId: string,
+  deps: { workspaceFactory: WorkspaceFactory },
+) {
+  requireWorkspaceFactory(deps?.workspaceFactory);
+
   const [root, binding] = await Promise.all([
     getActiveWorkspaceRootByProjectId(projectId),
     getActiveWorkspaceBinding(projectId),
@@ -12,7 +23,7 @@ export async function resolveWorkspaceForProject(projectId: string) {
     throw new Error('Workspace is not provisioned for this project');
   }
 
-  const workspace = await getWorkspaceFactory()(root.root_path);
+  const workspace = await deps.workspaceFactory(root.root_path);
 
   return {
     root,

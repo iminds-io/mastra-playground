@@ -1,10 +1,7 @@
-import { RequestContext } from '@mastra/core/request-context';
-
 import { loadProjectContext } from '../../services/project-context';
-import { getWorkspaceFactory } from '../../workspace/workspace-context';
+import type { WorkspaceFactory } from '../../platform-deps';
 import { resolveWorkspaceForProject } from '../../workspace/resolver';
-import { createProjectAgent } from '../agents/project-agent';
-import type { ProjectAgentRequestContext } from './request-context';
+import { buildExecutionContext } from './build-execution-context';
 
 type ProjectAgentResponse = {
   text: string;
@@ -19,47 +16,43 @@ type ProjectAgentLike = {
 };
 
 type ExecuteProjectAgentDeps = {
-  mastra?: {
+  mastra: {
     getAgent(name: 'projectAgent'): ProjectAgentLike;
   };
-  createRuntimeWorkspace?: (basePath: string) => Promise<import('@mastra/core/workspace').Workspace>;
+  workspaceFactory: WorkspaceFactory;
 };
 
 export async function executeProjectAgent(input: {
   firebaseUid: string;
   projectId: string;
   message: string;
-}, deps: ExecuteProjectAgentDeps = {}) {
+}, deps: ExecuteProjectAgentDeps) {
   const projectContext = await loadProjectContext({
     firebaseUid: input.firebaseUid,
     projectId: input.projectId,
   });
-  const resolvedWorkspace = await resolveWorkspaceForProject(input.projectId);
-  const runtimeWorkspace = await (deps.createRuntimeWorkspace ?? getWorkspaceFactory())(
-    resolvedWorkspace.root.root_path,
-  );
+  const resolvedWorkspace = await resolveWorkspaceForProject(input.projectId, {
+    workspaceFactory: deps.workspaceFactory,
+  });
   const threadId = projectContext.projectId;
-  const requestContext = new RequestContext<ProjectAgentRequestContext>();
+  const execution = buildExecutionContext({
+    projectContext,
+    workspaceRootPath: resolvedWorkspace.root.root_path,
+    workspace: resolvedWorkspace.workspace,
+    resourceId: projectContext.resourceId,
+    threadId,
+  });
 
-  requestContext.set('resourceId', projectContext.resourceId);
-  requestContext.set('actorUserId', projectContext.actorUserId);
-  requestContext.set('organizationId', projectContext.organizationId);
-  requestContext.set('projectId', projectContext.projectId);
-  requestContext.set('role', projectContext.role);
-  requestContext.set('workspace', runtimeWorkspace);
-  requestContext.set('mastra__resourceId', projectContext.resourceId);
-  requestContext.set('mastra__threadId', threadId);
-
-  const agent = deps.mastra?.getAgent('projectAgent') ?? createProjectAgent();
+  const agent = deps.mastra.getAgent('projectAgent');
   const output = await agent.generate(input.message, {
-    requestContext,
+    requestContext: execution.requestContext,
     resourceId: projectContext.resourceId,
     threadId,
   });
 
   return {
     resourceId: projectContext.resourceId,
-    workspaceRootPath: resolvedWorkspace.root.root_path,
+    workspaceRootPath: execution.workspaceRootPath,
     threadId,
     runId: output.runId,
     modelId: output.response?.modelId,

@@ -55,7 +55,7 @@ describe('streamChannelReplyForPrincipal', () => {
           channelId: channel.channel.id,
           message: 'hello',
         },
-        { mastra },
+        { mastra, workspaceFactory: fixture.workspaceFactory },
       );
 
       const events: Array<{ event: string; data: Record<string, unknown> }> = [];
@@ -67,7 +67,7 @@ describe('streamChannelReplyForPrincipal', () => {
           threadId: post.thread.id,
           message: 'respond with the single word "ok"',
         },
-        { mastra },
+        { mastra, workspaceFactory: fixture.workspaceFactory },
       )) {
         events.push(ev);
       }

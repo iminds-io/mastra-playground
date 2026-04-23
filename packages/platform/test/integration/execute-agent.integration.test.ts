@@ -1,5 +1,5 @@
 import { rm } from 'node:fs/promises';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RequestContext } from '@mastra/core/request-context';
 
 import { pool } from '../../src/db/client';
@@ -9,7 +9,6 @@ import { createOrganization } from '../../src/db/repositories/organizations';
 import { createProject } from '../../src/db/repositories/projects';
 import { upsertUser } from '../../src/db/repositories/users';
 import { executeProjectAgent } from '../../src/mastra/execution/execute-agent';
-import '../../src/workspace/factory';
 import { provisionWorkspaceForProject } from '../../src/workspace/provisioning';
 
 describe('executeProjectAgent', () => {
@@ -67,6 +66,8 @@ describe('executeProjectAgent', () => {
       workspaceRoot: '/Users/pureicis/dev/mastra-playground/hono-workspace/var/workspaces',
     });
 
+    const workspace = { filesystem: {} };
+    const workspaceFactory = vi.fn(async () => workspace as never);
     const result = await executeProjectAgent(
       {
         firebaseUid: 'firebase-user-1',
@@ -89,7 +90,7 @@ describe('executeProjectAgent', () => {
                 expect(options.resourceId).toBe(`project:${project.id}`);
                 expect(options.threadId).toBe(project.id);
                 expect(options.requestContext?.get('projectId')).toBe(project.id);
-                expect(options.requestContext?.get('workspace')).toBeDefined();
+                expect(options.requestContext?.get('workspace')).toBe(workspace);
 
                 return {
                   text: 'Project agent says hello.',
@@ -102,9 +103,11 @@ describe('executeProjectAgent', () => {
             };
           },
         },
-      },
+        workspaceFactory,
+      } as never,
     );
 
+    expect(workspaceFactory).toHaveBeenCalledTimes(1);
     expect(result.resourceId).toBe(`project:${project.id}`);
     expect(result.workspaceRootPath).toContain(`project_${project.id}`);
     expect(result.threadId).toBe(project.id);
@@ -154,7 +157,7 @@ describe('executeProjectAgent with real Mastra PG', () => {
           projectId: fixture.project.id,
           message: 'respond with the single word "ok" and nothing else',
         },
-        { mastra },
+        { mastra, workspaceFactory: fixture.workspaceFactory },
       );
 
       expect(typeof result.text).toBe('string');

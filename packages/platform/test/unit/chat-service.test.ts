@@ -55,14 +55,6 @@ vi.mock('../../src/db/repositories/channel-threads', () => ({
   })),
 }));
 
-vi.mock('../../src/workspace/factory', () => ({
-  createRuntimeWorkspace: vi.fn(),
-}));
-
-vi.mock('../../src/workspace/resolver', () => ({
-  resolveWorkspaceForProject: vi.fn(),
-}));
-
 import { createChannelPostForPrincipal } from '../../src/services/chat';
 
 describe('createChannelPostForPrincipal', () => {
@@ -91,6 +83,7 @@ describe('createChannelPostForPrincipal', () => {
             };
           },
         } as never,
+        workspaceFactory: vi.fn(async () => ({ filesystem: {} }) as never),
       },
     );
 

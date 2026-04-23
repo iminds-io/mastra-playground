@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { MastraServer } from '@mastra/hono';
+import { LocalFilesystem, LocalSandbox, Workspace } from '@mastra/core/workspace';
 
 import {
   bootstrapProjectForPrincipal,
@@ -16,6 +17,10 @@ import {
   listProjectChannelsForPrincipal,
   sendChannelMessageForPrincipal,
   streamChannelReplyForPrincipal,
+  summarizeProjectDocsForPrincipal,
+  runWorkspaceSupervisorForPrincipal,
+  parseAgentVersionFromQuery,
+  type WorkspaceFactory,
 } from '@hono-workspace/platform';
 
 import { createAuthMiddleware, type AppBindings } from '../middleware/auth';
@@ -44,6 +49,13 @@ type StreamEvent = {
 type AppFactoryParams = {
   databaseUrl?: string;
   mastra?: ReturnType<typeof createMastra>;
+  workspaceFactory?: WorkspaceFactory;
+  /**
+   * Comma-separated emails (or array) allowed to mutate /api/mastra/stored/*.
+   * Falls back to process.env.ADMIN_EMAILS when omitted. Reads stay open to
+   * every authenticated caller.
+   */
+  adminEmails?: string[] | string;
   tokenVerifier?: {
     verifyIdToken(token: string): Promise<{
       uid: string;
@@ -226,7 +238,65 @@ type AppFactoryParams = {
     threadId: string;
     message?: string;
   }) => AsyncIterable<StreamEvent> | Promise<AsyncIterable<StreamEvent>>;
+  summarizeProjectDocs?: (
+    input: {
+      firebaseUid: string;
+      projectId: string;
+      paths: string[];
+      question?: string;
+    },
+    deps?: {
+      version?:
+        | { versionId: string }
+        | { status: 'draft' | 'published' };
+    },
+  ) => Promise<{
+    projectId: string;
+    paths: string[];
+    text: string;
+    runId?: string;
+    modelId?: string;
+  }>;
+  runWorkspaceSupervisor?: (
+    input: {
+      firebaseUid: string;
+      projectId: string;
+      prompt: string;
+      paths?: string[];
+    },
+    deps?: {
+      version?:
+        | { versionId: string }
+        | { status: 'draft' | 'published' };
+    },
+  ) => Promise<{
+    projectId: string;
+    text: string;
+    runId?: string;
+    modelId?: string;
+  }>;
 };
+
+function createLocalWorkspaceFactory(): WorkspaceFactory {
+  return async (basePath: string) => {
+    const workspace = new Workspace({
+      filesystem: new LocalFilesystem({
+        basePath,
+        contained: true,
+      }),
+      sandbox: new LocalSandbox({
+        workingDirectory: basePath,
+        env: {
+          PATH: process.env.PATH ?? '',
+        },
+      }),
+    });
+
+    await workspace.init();
+
+    return workspace;
+  };
+}
 
 function createSseResponse(stream: AsyncIterable<StreamEvent>) {
   const encoder = new TextEncoder();
@@ -283,6 +353,8 @@ export async function createApp(params: AppFactoryParams = {}) {
   const auth = createAuthMiddleware({ tokenVerifier });
 
   const mastra = params.mastra ?? createMastra(process.env.DATABASE_URL ?? 'postgres://postgres:postgres@localhost:5432/hono_workspace');
+  const workspaceFactory = params.workspaceFactory ?? createLocalWorkspaceFactory();
+  const platformDeps = { mastra, workspaceFactory };
 
   app.route('/', healthRoutes);
   app.get('/ready', (c) => c.json({ ok: true }));
@@ -313,7 +385,7 @@ export async function createApp(params: AppFactoryParams = {}) {
     const principal = c.get('principal');
     const body = await c.req.json<{ message?: string }>();
     const result = await (params.executeProjectAgent ??
-      ((input) => executeProjectAgent(input, { mastra })))({
+      ((input) => executeProjectAgent(input, platformDeps)))({
       firebaseUid: principal.uid,
       projectId: c.req.param('projectId'),
       message: body.message ?? '',
@@ -327,6 +399,50 @@ export async function createApp(params: AppFactoryParams = {}) {
       modelId: result.modelId,
       text: result.text,
     });
+  });
+  app.post('/api/projects/:projectId/summarize', async (c) => {
+    const principal = c.get('principal');
+    const body = await c.req.json<{ paths?: string[]; question?: string }>();
+    const version = parseAgentVersionFromQuery({
+      get: (name: string) => c.req.query(name) ?? null,
+    });
+    const summarizeInput = {
+      firebaseUid: principal.uid,
+      projectId: c.req.param('projectId'),
+      paths: body.paths ?? [],
+      ...(body.question ? { question: body.question } : {}),
+    };
+    const depArg = version ? { version } : undefined;
+    const result = params.summarizeProjectDocs
+      ? await params.summarizeProjectDocs(summarizeInput, depArg)
+      : await summarizeProjectDocsForPrincipal(summarizeInput, {
+          ...platformDeps,
+          ...(version ? { version } : {}),
+        });
+
+    return c.json(result);
+  });
+  app.post('/api/projects/:projectId/supervise', async (c) => {
+    const principal = c.get('principal');
+    const body = await c.req.json<{ prompt?: string; paths?: string[] }>();
+    const version = parseAgentVersionFromQuery({
+      get: (name: string) => c.req.query(name) ?? null,
+    });
+    const supervisorInput = {
+      firebaseUid: principal.uid,
+      projectId: c.req.param('projectId'),
+      prompt: body.prompt ?? '',
+      ...(Array.isArray(body.paths) ? { paths: body.paths } : {}),
+    };
+    const depArg = version ? { version } : undefined;
+    const result = params.runWorkspaceSupervisor
+      ? await params.runWorkspaceSupervisor(supervisorInput, depArg)
+      : await runWorkspaceSupervisorForPrincipal(supervisorInput, {
+          ...platformDeps,
+          ...(version ? { version } : {}),
+        });
+
+    return c.json(result);
   });
   app.get('/api/projects/:projectId/channels', async (c) => {
     const principal = c.get('principal');
@@ -352,7 +468,7 @@ export async function createApp(params: AppFactoryParams = {}) {
   app.get('/api/projects/:projectId/channels/:channelId/feed', async (c) => {
     const principal = c.get('principal');
     const result = await (params.listChannelFeed ??
-      ((input) => listChannelFeedForPrincipal(input, { mastra })))({
+      ((input) => listChannelFeedForPrincipal(input, platformDeps)))({
       firebaseUid: principal.uid,
       projectId: c.req.param('projectId'),
       channelId: c.req.param('channelId'),
@@ -364,7 +480,7 @@ export async function createApp(params: AppFactoryParams = {}) {
     const principal = c.get('principal');
     const body = await c.req.json<{ message?: string }>();
     const result = await (params.createChannelPost ??
-      ((input) => createChannelPostForPrincipal(input, { mastra })))({
+      ((input) => createChannelPostForPrincipal(input, platformDeps)))({
       firebaseUid: principal.uid,
       projectId: c.req.param('projectId'),
       channelId: c.req.param('channelId'),
@@ -388,7 +504,7 @@ export async function createApp(params: AppFactoryParams = {}) {
     const principal = c.get('principal');
     const body = await c.req.json<{ title?: string }>();
     const result = await (params.createChannelThread ??
-      ((input) => createChannelThreadForPrincipal(input, { mastra })))({
+      ((input) => createChannelThreadForPrincipal(input, platformDeps)))({
       firebaseUid: principal.uid,
       projectId: c.req.param('projectId'),
       channelId: c.req.param('channelId'),
@@ -400,7 +516,7 @@ export async function createApp(params: AppFactoryParams = {}) {
   app.get('/api/projects/:projectId/channels/:channelId/threads/:threadId', async (c) => {
     const principal = c.get('principal');
     const result = await (params.getChannelThread ??
-      ((input) => getChannelThreadForPrincipal(input, { mastra })))({
+      ((input) => getChannelThreadForPrincipal(input, platformDeps)))({
       firebaseUid: principal.uid,
       projectId: c.req.param('projectId'),
       channelId: c.req.param('channelId'),
@@ -413,7 +529,7 @@ export async function createApp(params: AppFactoryParams = {}) {
     const principal = c.get('principal');
     const body = await c.req.json<{ message?: string }>();
     const result = await (params.sendChannelMessage ??
-      ((input) => sendChannelMessageForPrincipal(input, { mastra })))({
+      ((input) => sendChannelMessageForPrincipal(input, platformDeps)))({
       firebaseUid: principal.uid,
       projectId: c.req.param('projectId'),
       channelId: c.req.param('channelId'),
@@ -434,12 +550,37 @@ export async function createApp(params: AppFactoryParams = {}) {
       ...(typeof body.message === 'string' ? { message: body.message } : {}),
     };
     const stream = await (params.streamChannelReply ??
-      ((input) => streamChannelReplyForPrincipal(input, { mastra })))(streamInput);
+      ((input) => streamChannelReplyForPrincipal(input, platformDeps)))(streamInput);
 
     return createSseResponse(stream);
   });
 
-  const server = new MastraServer({ app, mastra });
+  // Admin gate for /api/mastra/stored/* writes. Must be registered BEFORE the
+  // MastraServer mount so it intercepts mutating methods first.
+  const rawAllowlist = params.adminEmails ?? process.env.ADMIN_EMAILS;
+  const adminAllowlist = (Array.isArray(rawAllowlist)
+    ? rawAllowlist
+    : (rawAllowlist ?? '').split(','))
+    .map((entry) => entry.trim().toLowerCase())
+    .filter((entry) => entry.length > 0);
+
+  app.use('/api/mastra/stored/*', async (c, next) => {
+    const method = c.req.method.toUpperCase();
+    if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') {
+      return next();
+    }
+    const principal = c.get('principal');
+    const email = principal?.email?.toLowerCase() ?? '';
+    if (!email || !adminAllowlist.includes(email)) {
+      return c.json({ error: 'Admin access required for stored-agent mutations' }, 403);
+    }
+    await next();
+  });
+
+  // Cast to relax the generic Mastra<...> returned by createMastra down to the
+  // base Mastra class expected by MastraServer. TS can't reconcile the private
+  // fields across the two generics even though it's the same class at runtime.
+  const server = new MastraServer({ app, mastra: mastra as never, prefix: '/api/mastra' });
   await server.init();
 
   return app;

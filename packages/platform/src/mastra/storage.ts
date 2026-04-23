@@ -23,11 +23,19 @@ export function createMastraStorage(
   options: { disableInit?: boolean } = {},
 ) {
   const pool = new Pool({ connectionString });
-  return new PostgresStore({
+  const store = new PostgresStore({
     id: 'mastra-storage',
     pool,
     disableInit: options.disableInit ?? true,
   });
+  const closeStore = store.close.bind(store);
+
+  store.close = async () => {
+    await closeStore();
+    await pool.end();
+  };
+
+  return store;
 }
 
 /**

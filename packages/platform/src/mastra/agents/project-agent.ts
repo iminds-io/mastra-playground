@@ -1,53 +1,26 @@
-import { Agent } from '@mastra/core/agent';
-import { createOpenRouter } from '@openrouter/ai-sdk-provider';
-import { Memory } from '@mastra/memory';
+// ABOUTME: Default workspace-aware project assistant.
+// ABOUTME: Registers the full workspace toolkit (read, list, write).
 
-import type { ProjectAgentRequestContext } from '../execution/request-context';
+import { workspaceToolkit } from '../tools/workspace-tools';
+import { buildWorkspaceAgent } from './build-agent';
+import type { AgentModelConfig } from './model';
 
-const DEFAULT_OPENROUTER_MODEL = 'openai/gpt-4.1-mini';
-
-export type ProjectAgentConfig = {
-  openrouterApiKey?: string | undefined;
-  openrouterModel?: string | undefined;
-};
-
-function resolveProjectAgentModel(config: ProjectAgentConfig = {}) {
-  const apiKey = config.openrouterApiKey ?? process.env.OPENROUTER_API_KEY;
-
-  if (!apiKey) {
-    throw new Error('OPENROUTER_API_KEY is required to execute the project agent.');
-  }
-
-  const provider = createOpenRouter({ apiKey });
-  const modelId = config.openrouterModel ?? process.env.OPENROUTER_MODEL ?? DEFAULT_OPENROUTER_MODEL;
-
-  return provider.chat(modelId);
-}
+export type ProjectAgentConfig = AgentModelConfig;
 
 export function createProjectAgent(config: ProjectAgentConfig = {}) {
-  return new Agent<'project-agent', never, undefined, ProjectAgentRequestContext>({
-    id: 'project-agent',
+  return buildWorkspaceAgent({
+    id: 'project-agent' as const,
     name: 'Project Agent',
     description: 'Default workspace-aware project assistant.',
     instructions: ({ requestContext }) => [
       'You are the project workspace assistant for a Hono + Mastra development environment.',
       'Answer directly and keep responses concise unless the user asks for depth.',
-      'When the workspace is available, treat it as the source of truth for project-local context.',
+      'The workspace is the source of truth for project-local context. Use the workspace tools (listDir, readFile, writeFile) to inspect and modify it instead of guessing.',
       `Current project ID: ${requestContext.get('projectId')}`,
       `Current organization ID: ${requestContext.get('organizationId')}`,
       `Caller role: ${requestContext.get('role')}`,
     ].join('\n'),
-    model: () => resolveProjectAgentModel(config),
-    memory: new Memory({
-      options: {
-        // Mastra's observational memory schedules async work that outlives the
-        // originating request. On Cloudflare Workers, that background work
-        // touches the DB pool across request boundaries and triggers
-        // "Cannot perform I/O on behalf of a different request" errors.
-        // Disable until @mastra/core fully supports the CF Workers runtime.
-        observationalMemory: false,
-      },
-    }),
-    workspace: ({ requestContext }) => requestContext.get('workspace'),
+    toolkit: workspaceToolkit,
+    config,
   });
 }
