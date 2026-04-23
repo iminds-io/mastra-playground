@@ -3,6 +3,7 @@ import {
   GoogleAuthProvider,
   getAuth,
   onAuthStateChanged,
+  signInWithEmailAndPassword,
   signInWithPopup,
   signOut,
 } from 'firebase/auth';
@@ -23,6 +24,13 @@ const provider = new GoogleAuthProvider();
 
 export async function signInWithGoogle() {
   await signInWithPopup(auth, provider);
+}
+
+// Email/password sign-in for dev-time E2E testing against deployed backends.
+// The caller is responsible for providing credentials (typically from Vite env
+// vars prefixed VITE_*). Do NOT hard-code credentials in this module.
+export async function signInWithEmailPassword(email: string, password: string) {
+  await signInWithEmailAndPassword(auth, email, password);
 }
 
 export async function signOutUser() {

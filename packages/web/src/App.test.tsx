@@ -52,9 +52,6 @@ const api = vi.hoisted(() => ({
       status: 'active',
     },
   })),
-  getWorkspace: vi.fn(async (_user: unknown, projectId: string) => ({
-    projectId,
-  })),
   runAdminTest: vi.fn(async (_user: unknown, projectId: string, message: string) => ({
     resourceId: `project:${projectId}`,
     workspaceRootPath: `/tmp/${projectId}`,

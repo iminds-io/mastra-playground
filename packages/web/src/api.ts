@@ -166,12 +166,6 @@ export async function bootstrapProject(user: AuthUser, name: string) {
   });
 }
 
-export async function getWorkspace(user: AuthUser, projectId: string) {
-  return apiFetch<{
-    projectId: string;
-  } & ResponseMeta>(`/api/projects/${projectId}/workspace`, user, { method: 'GET' });
-}
-
 export async function runAdminTest(user: AuthUser, projectId: string, message: string) {
   return apiFetch<AdminTestResponse>(`/api/projects/${projectId}/admin/test`, user, {
     method: 'POST',
