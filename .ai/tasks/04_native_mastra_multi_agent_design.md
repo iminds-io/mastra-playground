@@ -395,6 +395,20 @@ For Tier A: one E2E test per agent confirming `POST /api/mastra/agents/<name>/st
 | 5 | Per-tenant agent isolation (different agents per org) | Out of scope — current model is one Mastra instance, all projects/orgs share the same agents. |
 | 6 | Studio deployment + auth bridge | Phase 5 spike. |
 
+### Resolved during Phase 0
+
+#### Spike A resolution (2026-04-16)
+
+- Per-request `MastraServer` mount time on a fresh Neon branch: p50 0.34 ms, p95 2.41 ms.
+- Decision: keep the inline per-request mount strategy. No memoization layer is needed.
+
+#### Spike B resolution (2026-04-16)
+
+- Mastra stream chunk types observed: `start`, `step-start`, `text-start`, `text-delta`, `text-end`, `step-finish`, `text`, `finish`.
+- Auth interaction: the existing `/api/*` Firebase auth middleware can run before the MastraServer mount. A request without a bearer token returned 401 before Mastra handling; an authenticated request returned 200 from `GET /api/mastra/agents`.
+- Hono v4.12 satisfies `@mastra/hono`'s `HonoApp` interface without a type cast in the spike.
+- Note: the spike process emitted a Neon WebSocket teardown error after the stream completed and the temporary branch cleanup ran. The stream itself completed successfully and returned `text/event-stream` with `data:` lines.
+
 ## 12. Decision summary
 
 | Decision | Choice | Why |

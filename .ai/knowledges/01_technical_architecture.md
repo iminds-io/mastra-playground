@@ -1,13 +1,13 @@
 # Technical Architecture — hono-workspace
 
-**Status:** Living document. Reflects the state as of 2026-04-16.
+**Status:** Living document. Reflects the current worktree as of 2026-04-23.
 **Scope:** Complete technical picture: packages, runtime targets, data flow, deployment, testing, and known gotchas.
 
 ---
 
 ## 1. One-paragraph overview
 
-`hono-workspace` is a monorepo that exposes a Hono-based HTTP API for a Mastra-powered AI workspace. The backend is deployable as either a Node.js server (`packages/app`) or a Cloudflare Worker (`packages/worker`) — both consume the same runtime-agnostic business logic from `packages/platform`. Agents run via Mastra with a PostgreSQL store on Neon and a workspace filesystem backed by either the local disk (Node.js) or Cloudflare R2 (CF Worker). A React + Vite frontend (`packages/web`) lives in the same monorepo but is deployed independently. Test coverage spans four layers (unit, integration, E2E, smoke) totaling 68 tests against real infrastructure — Neon branches per test run, real Firebase tokens, real R2 prefixes.
+`hono-workspace` is a monorepo that exposes a Hono-based HTTP API for a Mastra-powered AI workspace. The backend runs as either a Node.js development server (`packages/app`) or a Cloudflare Worker (`packages/worker`) — both consume runtime-agnostic business logic from `packages/platform`. Agents and workflows run via Mastra with a PostgreSQL store on Neon, a workspace filesystem backed by either local disk (Node.js) or Cloudflare R2 (Worker), and runtime prompt/tool overrides via `@mastra/editor` (admin-gated). Two HTTP surfaces are exposed: a Mastra-native surface under `/api/mastra/*` (auto-registered agents, workflows, editor CRUD), and hand-written domain routes under `/api/projects/:projectId/...` for business-scoped operations. The frontend is a React + Vite app (`packages/web`) that consumes shared UI primitives from `packages/ui` and is deployed independently from the API. Tests span unit, integration, E2E, and smoke layers; the current unit suite reports 122 tests, with integration/E2E/smoke coverage running against real infrastructure — Neon branches per test run, real Firebase tokens, and real R2 prefixes.
 
 ---
 
@@ -17,8 +17,9 @@
 hono-workspace/
 ├── packages/
 │   ├── platform/        # Runtime-agnostic business logic (database, workspace, Mastra agents)
-│   ├── app/             # Node.js HTTP server — dev + production-on-Node target
+│   ├── app/             # Node.js HTTP server — local development target
 │   ├── worker/          # Cloudflare Worker — production target deployed to Workers
+│   ├── ui/              # Shared React UI primitives + styles
 │   └── web/             # React + Vite frontend (deployed separately)
 ├── .ai/
 │   ├── tasks/           # Numbered plan + completion docs per major task
@@ -42,31 +43,43 @@ Test runner: **Vitest 4.1.4**.
 
 ### `packages/platform` — `@hono-workspace/platform`
 
-The business-logic core. Contains every domain operation the API performs. Runtime-agnostic: no imports from `@hono/node-server`, no direct `node:fs` writes in hot paths, no hardcoded database client.
+The business-logic core. Contains every domain operation the API performs. Runtime-agnostic at the HTTP/filesystem boundary: no imports from `@hono/node-server`, no direct `node:fs` writes in hot paths, repository queries go through the injectable database context, and workspace construction is supplied by entry points. Mastra storage intentionally uses `@neondatabase/serverless` so the same storage factory works in Cloudflare Workers.
 
-**Exports (via `./src/index.ts`)**
+**Key modules**
 
 | Module | Responsibility |
 |---|---|
 | `auth/claims`, `auth/firebase-token-verifier`, `auth/jwks-cache` | Verify Firebase ID tokens. Fetches Google's x509 certificates and caches them per worker instance. |
 | `db/context` | Injectable pool holder. `setDatabasePool()` / `getDatabasePool()`. |
 | `db/repositories/*` | Thin query wrappers for `organizations`, `users`, `memberships`, `projects`, `project-channels`, `channel-threads`, `workspace-roots`, `workspace-bindings`. Each function calls `getDatabasePool().query(...)`. |
-| `mastra/create-mastra` | `createMastra(connectionString, agentConfig)` — returns a Mastra instance with the project agent and Postgres storage. |
-| `mastra/storage` | `createMastraStorage()` + new `initMastraSchema()` helper. Injects a Neon-backed Pool into `@mastra/pg`'s `PostgresStore`. |
-| `mastra/agents/project-agent` | The single agent we ship. Uses OpenRouter for the model. `Memory` is configured with `observationalMemory: false` for CF compatibility. |
-| `mastra/execution/execute-agent` | Orchestrates an agent run: resolves project context, builds the runtime workspace, sets `RequestContext`, calls `agent.generate()`. |
+| `platform-deps` | Explicit runtime dependency types. `PlatformDeps` carries `{ mastra, workspaceFactory }`; entry points construct these dependencies and pass them into principal-flow services instead of relying on a global workspace factory. |
+| `mastra/create-mastra` | `createMastra(connectionString, agentConfig)` — returns a Mastra instance with registered agents/workflows, Postgres storage, and a registered `MastraEditor`. Agents and workflows come from the local registries. |
+| `mastra/storage` | `createMastraStorage()` + `initMastraSchema()` helper. Injects a Neon-backed Pool into `@mastra/pg`'s `PostgresStore`. |
+| `mastra/agents/registry` | Central code-defined agent registry consumed by `createMastra()`. Keeps new specialists/supervisors out of the Mastra factory import list. |
+| `mastra/workflows/registry` | Central code-defined workflow registry consumed by `createMastra()`. |
+| `mastra/agents/project-agent` | Original chat-style agent. Uses OpenRouter for the model, binds `workspace` from `RequestContext`, and registers the full read/list/write workspace toolkit. `Memory` is configured with `observationalMemory: false` for CF compatibility. |
+| `mastra/agents/summarizer` | Second agent that summarizes workspace documents. Uses the same Memory/workspace binding pattern but registers only the read-only toolkit. |
+| `mastra/agents/workspace-reviewer` | Read-only specialist that reviews workspace files for implementation risks, missing tests, stale docs, and architecture gaps. Intended for supervisor delegation. |
+| `mastra/agents/workspace-supervisor` | Read-only supervisor agent that coordinates `summarizer`, `workspaceReviewer`, and safe workflows through Mastra's native supervisor-agent behavior (`generate` / `stream`, not deprecated `.network()`). |
+| `mastra/tools/workspace-tools` | `readFileTool`, `listDirTool`, `writeFileTool` — Mastra `Tool` definitions that call through the request's `workspace` filesystem. Exports `workspaceReadOnlyToolkit` for summarization and `workspaceToolkit` for the project agent. |
+| `mastra/workflows/ingest-pipeline` | Two-step workflow: list docs → summarize. Composed via `createWorkflow({ ... }).then(...).commit()`. Registered in `createMastra()`. |
+| `mastra/execution/build-execution-context` | Shared builder for `{ requestContext, threadId, resourceId }`. Seeds `projectId`, `organizationId`, `role`, `workspaceRootPath`, and `workspace` onto `RequestContext`. Used by `chat`, `execute-agent`, and `summarization`. |
+| `mastra/execution/execute-agent` | Orchestrates a project agent run: resolves project context, builds the runtime workspace, sets `RequestContext`, calls `agent.generate()`. |
+| `mastra/execution/request-context` | `ProjectAgentRequestContext` type + seeding helpers used by `build-execution-context`. |
+| `mastra/version` | Agent version targeting helpers. `parseAgentVersionFromQuery(source)` reads `?versionId=` / `?status=` from a query source (URLSearchParams or anything with `.get(name): string | null`). `getAgentWithVersion(mastra, id, version?)` is **async** — it awaits `mastra.getAgentById(id, version)` (which returns `Promise<Agent>`) and falls through to the sync `mastra.getAgent(id)` when no version is set. |
 | `services/access-control` | Throws `AccessDeniedError` for authorization failures. |
 | `services/audit` | Records `workspace_events` rows for control-plane observability. |
 | `services/chat` | High-level chat operations: create channels/threads, post messages, list feeds, stream SSE replies. |
 | `services/dev-bootstrap` | `bootstrapProjectForPrincipal()` — one-shot: creates org, user, membership, project, default channel, and provisions workspace. |
 | `services/project-context` | `loadProjectContext()` — authorization query that joins user → membership → project. Throws `AccessDeniedError` if the user has no role on the project. |
 | `services/projects` | `listAccessibleProjectsForPrincipal()`. |
-| `workspace/context` | Injectable workspace factory holder. `setWorkspaceFactory()` / `getWorkspaceFactory()`. |
-| `workspace/factory` | Node.js default — registers `createRuntimeWorkspace(basePath)` using `LocalFilesystem` + `LocalSandbox`. |
+| `services/summarization` | Tier B surface for the summarizer agent. `summarizeProjectDocsForPrincipal(input, { mastra, workspaceFactory, version? })` authorizes the caller, resolves the workspace, builds an execution context, awaits `getAgentWithVersion`, and calls `.generate()`. |
+| `services/supervisor` | Tier B surface for the workspace supervisor. `runWorkspaceSupervisorForPrincipal(input, { mastra, workspaceFactory, version? })` authorizes the caller, resolves the workspace, builds execution context, and calls the supervisor with capped delegation options. |
+| `workspace/resolver` | `resolveWorkspaceForProject(projectId, { workspaceFactory })` — reads the project's active `workspace_roots` and `workspace_bindings` rows, then produces a runtime `Workspace` via the supplied factory. |
 | `workspace/locking` | DB-backed mutex via the `workspace_locks` table. |
 | `workspace/paths` | Path composition + containment checks. |
 | `workspace/provisioning` | Creates `workspace_roots` + `workspace_bindings` rows. Takes `workspaceRoot` as a parameter (NOT read from env). |
-| `workspace/reconciliation` | Verifies the workspace is reachable via the current workspace factory. |
+| `workspace/reconciliation` | Verifies the workspace is reachable via an explicitly supplied workspace factory and marks the root `error` if it is not. |
 
 **Subpath export: `@hono-workspace/platform/node`**
 
@@ -74,29 +87,30 @@ Exports `pool` from `db/client.ts`. This path is for **Node.js-only consumers** 
 
 **Dependencies (runtime):**
 
-- `@mastra/core`, `@mastra/memory`, `@mastra/pg` — Mastra framework
+- `@mastra/core@1.25.0`, `@mastra/memory@1.15.1`, `@mastra/pg@1.9.1` — Mastra framework
+- `@mastra/editor@0.7.16` — registered in `createMastra()` so the editor's `/stored/*` routes are auto-mounted by `MastraServer`. Requires `Agent.__fork()` which landed in `@mastra/core@1.25.0` — older core versions cause a runtime `TypeError: agent.__fork is not a function` when loading stored overrides.
 - `@openrouter/ai-sdk-provider` — LLM client
 - `pg` — Node.js-only Postgres driver (used by `db/client.ts`)
 - `jose` — Firebase ID token verification
 - `zod` — schema validation
 - `dotenv` — Node.js env loading
 
-**Dependencies (dev/test):**
+**Dependencies (runtime/test support):**
 
-- `@neondatabase/serverless` — used by integration test setup to query the Neon branch directly (also re-exported to consumers through `@mastra/pg` storage)
+- `@neondatabase/serverless` — imported by `mastra/storage` for the Neon WebSocket `Pool`; also used by the Worker HTTP adapter and integration/E2E test helpers.
 
 ### `packages/app` — `@hono-workspace/app`
 
-The Node.js deployment target. Entry point: `packages/app/src/index.ts`. Uses `@hono/node-server` to serve on port 3000.
+The Node.js local server target. Entry point: `packages/app/src/index.ts`. Uses `@hono/node-server` to serve on port 3000.
 
 Key files:
 - `src/index.ts` — boots the Hono app via `createApp()` from factory.
 - `src/server/factory.ts` — route registration, Mastra server mount, auth middleware, SSE streaming.
 - `src/middleware/auth.ts` — Hono middleware wrapping Firebase token verification.
 - `src/routes/*` — health, me, projects route groups.
-- `test/integration/*.integration.test.ts` — integration tests (7 test files).
+- `test/integration/*.integration.test.ts` — integration tests (10 test files).
 
-Uses `LocalFilesystem` + `LocalSandbox` via the default workspace factory. Database connects via `@hono-workspace/platform/node`'s `pool` (pg.Pool against docker-compose Postgres by default).
+Uses a local `createLocalWorkspaceFactory()` in `src/server/factory.ts` to construct `LocalFilesystem` + `LocalSandbox` workspaces, then passes `{ mastra, workspaceFactory }` explicitly into platform services. Database connects via `@hono-workspace/platform/node`'s `pool` (pg.Pool against docker-compose Postgres by default).
 
 ### `packages/worker` — `@hono-workspace/worker`
 
@@ -127,18 +141,23 @@ compatibility_flags = ["nodejs_compat"]
 ```
 1. setDatabasePool(createNeonHttpPool(env.DATABASE_URL))
      → our repo queries use stateless HTTP (CF-safe)
-2. setWorkspaceFactory((basePath) => new Workspace({
+2. create a request-scoped workspaceFactory:
+   (basePath) => new Workspace({
      filesystem: new S3Filesystem({ bucket, endpoint, credentials, prefix: basePath }),
-   }))
+   })
 3. return createMastra(env.DATABASE_URL, { openrouterApiKey, openrouterModel })
      → Mastra internally creates a Neon WebSocket Pool (multi-statement DDL capable)
 ```
 
-The per-request model is required because CF Workers bind I/O objects to the originating request. Stateless HTTP queries (our repos) are cheap per request. WebSocket pools (Mastra's path) only stay healthy within a single request's I/O context; Mastra's `disableInit: true` and `observationalMemory: false` ensure no work crosses that boundary.
+The boot middleware stores both `mastra` and `workspaceFactory` on Hono context (`c.set(...)`); route handlers then pass those dependencies into platform services. The per-request model is required because CF Workers bind I/O objects to the originating request. Stateless HTTP queries (our repos) are cheap per request. WebSocket pools (Mastra's path) only stay healthy within a single request's I/O context; Mastra's `disableInit: true` and `observationalMemory: false` ensure no work crosses that boundary.
 
 ### `packages/web` — `@hono-workspace/web`
 
-React 19 + Vite frontend. Firebase SDK for client-side auth. Vite dev proxy forwards `/api/*` to the backend on `localhost:3000`. Not deployed with the worker — treated as a separate artifact.
+React 19 + Vite frontend. Firebase SDK for client-side auth. Consumes shared components and CSS from `@hono-workspace/ui`. Vite dev proxy forwards `/api/*` to the backend on `localhost:3000`. Not deployed with the worker — treated as a separate artifact.
+
+### `packages/ui` — `@hono-workspace/ui`
+
+Shared React UI primitives and styling used by the web app. Exports component primitives plus `./styles.css`; current components include button, badge, card, input, scroll-area, and textarea. Built around Radix primitives where needed, `class-variance-authority`, `clsx`, `tailwind-merge`, and Tailwind CSS v4.
 
 ---
 
@@ -194,17 +213,19 @@ All prefixed `mastra_*`. Provisioned via `initMastraSchema(connectionString)` wh
 
 ```
 mastra_threads, mastra_messages, mastra_resources — conversations
-mastra_agents, mastra_agent_versions              — agent registry
+mastra_agents, mastra_agent_versions              — stored agent overrides (editor-backed)
 mastra_workspaces, mastra_workspace_versions      — Mastra-internal workspace metadata
-mastra_observational_memory                        — long-term memory (currently unused; async buffering disabled)
-mastra_workflow_snapshot                           — workflow state
+mastra_observational_memory                       — long-term memory (currently unused; async buffering disabled)
+mastra_workflow_snapshot                          — workflow state
 mastra_scorers, mastra_scorer_definitions         — scoring framework
 mastra_datasets, mastra_dataset_items             — dataset storage
 mastra_experiments, mastra_experiment_results     — experiment runs
 ...and more
 ```
 
-**Critical:** Mastra table DDL is NOT re-run at runtime in the worker (`disableInit: true`). Schema drift after a Mastra package upgrade requires a manual `initMastraSchema()` call from a migration script — see production migration playbook in the testing README.
+Registering `@mastra/editor@0.7.16` on top of `@mastra/core@1.25.0` did **not** add new `mastra_*` tables — verified by counting before/after in Phase 4. The editor layers on top of the existing storage domain.
+
+**Critical:** Mastra table DDL is NOT re-run at runtime in the worker (`disableInit: true`). Schema drift after a `@mastra/core` or `@mastra/pg` version bump requires a manual `initMastraSchema()` call from a migration script — see production migration playbook in §8.
 
 ---
 
@@ -232,8 +253,45 @@ All `/api/*` routes require a `Bearer <firebase-id-token>` header. The worker's 
 | `/api/projects/:projectId/channels/:channelId/threads/:threadId` | GET | Thread details + messages |
 | `/api/projects/:projectId/channels/:channelId/threads/:threadId/messages` | POST | Send message + get agent reply (synchronous) |
 | `/api/projects/:projectId/channels/:channelId/threads/:threadId/messages/stream` | POST | Send message + stream agent reply as SSE (`ack` → `token`* → `done`) |
+| `/api/projects/:projectId/summarize` | POST | Summarize a set of workspace paths via the `summarizer` agent. Accepts `?versionId=` or `?status=draft\|published` for editor-targeted version selection. |
+| `/api/projects/:projectId/supervise` | POST | Run the read-only workspace supervisor over a prompt and optional workspace paths. Accepts `?versionId=` or `?status=draft\|published` for editor-targeted supervisor selection. |
 
-Routes are registered identically in `packages/app/src/server/factory.ts` and `packages/worker/src/index.ts`. Shared route-handler logic could be extracted but wasn't — the duplication is lightweight (thin call sites into platform services) and keeps the worker bundle small.
+The Node app and Worker expose the same domain routes, with thin call sites into shared platform services. Their registration code is intentionally duplicated in `packages/app/src/server/factory.ts` and `packages/worker/src/index.ts`: the Node app mounts `MastraServer` once during `createApp()`, while the Worker creates the Mastra/Hono bridge per `/api/mastra/*` request to keep request-scoped I/O isolated.
+
+### Mastra-native surface (Tier A) — `/api/mastra/*`
+
+`@mastra/hono`'s `MastraServer` is mounted under `/api/mastra/*` (per-request on Workers, at app init on Node) and auto-exposes every agent and workflow registered in `createMastra()`:
+
+- `GET  /api/mastra/agents` — list registered agents
+- `GET  /api/mastra/agents/:agentId` — agent metadata
+- `POST /api/mastra/agents/:agentId/generate` — synchronous reply
+- `POST /api/mastra/agents/:agentId/stream` — SSE reply (Mastra's native event shape: `start`, `text-delta`, `finish`, etc.)
+- `GET  /api/mastra/workflows` — list registered workflows
+- `POST /api/mastra/workflows/:workflowId/create-run` — create a run
+- `POST /api/mastra/workflows/:workflowId/start-async` — start a run
+- `POST /api/mastra/workflows/:workflowId/stream` — SSE stream of workflow events
+
+**Editor endpoints** (requires `@mastra/editor` registered on the Mastra instance):
+
+- `GET  /api/mastra/stored/agents` — list stored-agent overrides (auth-required, no admin)
+- `GET  /api/mastra/stored/agents/:id` — get a stored-agent override
+- `GET  /api/mastra/stored/agents/:id/versions` — list versions
+- `POST /api/mastra/stored/agents` — **admin-only** create override
+- `PATCH /api/mastra/stored/agents/:id` — **admin-only** update override (auto-creates new draft version)
+- `DELETE /api/mastra/stored/agents/:id` — **admin-only** delete
+- (plus prompt-block, scorer, workspace, skill CRUD endpoints from the editor)
+
+**Admin gate:** Mutating methods on `/api/mastra/stored/*` require the verified Firebase email in `c.var.principal.email` to match the `ADMIN_EMAILS` env var (comma-separated, case-insensitive). Reads stay open to every authenticated caller. Unauthenticated requests hit the normal `/api/*` 401 path first.
+
+### Version targeting on domain routes
+
+Domain routes that wrap an editor-overridable agent accept optional query parameters:
+
+- `?versionId=<uuid>` — pin to a specific stored version
+- `?status=draft` — use the latest draft override
+- `?status=published` — use the published override (default when neither is set)
+
+These map to Mastra's `getAgentById(id, { versionId })` / `getAgentById(id, { status })` overloads. The helpers live in `@hono-workspace/platform`: `parseAgentVersionFromQuery()` and `getAgentWithVersion()`. **`getAgentWithVersion()` is async** — the versioned path hits storage and returns `Promise<Agent>`, while the unversioned fallback uses the sync `mastra.getAgent(id)`. Service callers must `await` it or the resulting `.generate()` call will fail with `agent.generate is not a function`. Today only `/api/projects/:projectId/summarize` uses them; the pattern is ready for any future domain route.
 
 ---
 
@@ -247,8 +305,9 @@ A typical `POST /api/projects/:id/channels/:id/threads/:id/messages` call on the
  │ 1. CF Worker `fetch(request, env, ctx)` invoked                  │
  │ 2. `app.use('*', ...)` middleware runs `bootRequest(env)`:       │
  │      - setDatabasePool(createNeonHttpPool(env.DATABASE_URL))     │
- │      - setWorkspaceFactory((path) => new Workspace({ s3 }))      │
+ │      - create request-scoped workspaceFactory for R2 workspaces   │
  │      - c.set('mastra', createMastra(env.DATABASE_URL, {...}))    │
+ │      - c.set('workspaceFactory', workspaceFactory)                │
  │ 3. `/api/*` auth middleware:                                     │
  │      - verify Firebase ID token via platform's verifier          │
  │      - c.set('principal', { uid, email, name })                  │
@@ -256,7 +315,7 @@ A typical `POST /api/projects/:id/channels/:id/threads/:id/messages` call on the
  │    ┌────────────────────────────────────────────────────────┐    │
  │    │ 5a. loadProjectContext() → Neon HTTP query (repo)      │    │
  │    │ 5b. resolveWorkspaceForProject() → Neon HTTP queries   │    │
- │    │        → getWorkspaceFactory()(rootPath)               │    │
+ │    │        → deps.workspaceFactory(rootPath)                │    │
  │    │        → new Workspace with S3Filesystem (R2)          │    │
  │    │ 5c. buildExecutionContext() → seed RequestContext       │    │
  │    │ 5d. mastra.getAgent('projectAgent').generate(msg, ...)  │    │
@@ -282,7 +341,7 @@ cd packages/worker
 pnpm exec wrangler deploy     # uploads + binds; reuses OAuth creds
 ```
 
-Secrets are managed via `wrangler secret put <NAME>` or `wrangler secret bulk <file.json>`. Nine secrets are bound to the production worker:
+Secrets are managed via `wrangler secret put <NAME>` or `wrangler secret bulk <file.json>`. Production secrets:
 
 ```
 DATABASE_URL                # Neon pooled URL as neondb_owner
@@ -294,7 +353,10 @@ R2_ACCESS_KEY_ID
 R2_SECRET_ACCESS_KEY
 R2_BUCKET_NAME
 WORKSPACE_ROOT              # R2 prefix for this deployment's workspaces
+ADMIN_EMAILS                # comma-separated, case-insensitive; gates /api/mastra/stored/* writes
 ```
+
+Optional: `OPENROUTER_MODEL` (per-deployment model pin; falls back to each agent's default `openai/gpt-4.1-mini`).
 
 ### Node.js (`packages/app`)
 
@@ -333,11 +395,13 @@ The runtime `neondb_owner` continues to work without changes thanks to Neon's de
 Four independently-runnable layers:
 
 ```bash
-pnpm test:unit           # 31 tests, <1s — no network, no DB
-pnpm test:integration    # 23 tests, ~43s — real Neon branch, real Mastra
-pnpm test:e2e            # 9 tests, ~20s — spawned wrangler dev + real Firebase tokens
-pnpm test:smoke          # 5 tests, ~3s — deployed worker + real prod DB writes
+pnpm test:unit           # 122 tests, ~2s — no network, no DB
+pnpm test:integration    # 45 tests, ~90s — real Neon branch, real Mastra
+pnpm test:e2e            # 22 tests, ~90s — spawned wrangler dev + real Firebase tokens
+pnpm test:smoke          # 5 tests, ~6s — deployed worker + real prod DB writes
 ```
+
+The counts are from fresh local runs on 2026-04-23. Run times vary with Neon, Firebase, R2, and deployed-worker latency.
 
 See:
 - [`packages/worker/test/README.md`](../../packages/worker/test/README.md) — operational reference.
@@ -376,6 +440,14 @@ The `POST /projects/{id}/branches` response no longer contains `connection_uris`
 
 The HTTP transport (`neon()`) rejects multi-statement SQL with `42601: cannot insert multiple commands into a prepared statement`. Use WebSocket `Pool` for DDL paths (like `PostgresStore.init()`). Single-statement queries are fine on HTTP.
 
+### `mastra.getAgentById(id, version)` is async; `mastra.getAgent(id)` is sync
+
+Mastra's `getAgent(id)` returns an `Agent` synchronously from the registry. `getAgentById(id, { versionId | status })` hits the editor storage and returns `Promise<Agent>`. Our `getAgentWithVersion()` helper papers over both paths, but it itself is `async`. Forgetting to `await` it produces a Promise that looks like an Agent to TypeScript (because of generic erasure) but explodes at runtime with `TypeError: agent.generate is not a function`. Rule: always `await getAgentWithVersion(...)`.
+
+### `@mastra/editor` requires `@mastra/core` ≥ 1.25.0
+
+`@mastra/editor@0.7.16` calls `Agent.__fork()` to produce hydrated overrides. That method landed in `@mastra/core@1.25.0`. Running the editor against `@mastra/core@1.24.x` surfaces as `TypeError: agent.__fork is not a function` the first time an override is loaded. When bumping `@mastra/editor`, keep `core`, `memory`, `pg`, and `hono` Mastra packages on compatible aligned versions.
+
 ### `pnpm exec` swallows `--` flags
 
 `pnpm exec wrangler dev --env-file .dev.vars.test` will lose `--env-file` because pnpm eats it. Use `pnpm exec -- wrangler dev --env-file ...` with the `--` separator.
@@ -383,6 +455,10 @@ The HTTP transport (`neon()`) rejects multi-statement SQL with `42601: cannot in
 ### Wrangler `--env-file` requires relative path
 
 `wrangler dev --env-file /absolute/path/to/.dev.vars` errors with "not found". Pass the filename relative to wrangler's cwd.
+
+### R2 S3 XML parsing in Workers
+
+The root `pnpm-workspace.yaml` registers a patch for `@aws-sdk/xml-builder@3.972.17` that removes its `browser` package field. Without the patch, Wrangler's esbuild bundle can select the DOMParser-based XML parser, and S3/R2 response parsing fails in Workers with `ReferenceError: DOMParser is not defined`. If R2 operations fail after an AWS SDK dependency bump, confirm the patch still applies.
 
 ---
 
@@ -417,12 +493,17 @@ pnpm --filter @hono-workspace/worker dev   # wrangler dev with .dev.vars
 | Decision | Alternative considered | Why we chose this |
 |---|---|---|
 | Two backend packages (`app` + `worker`) instead of one | Compile-time conditional in a single package | Clean boundary; Node dev ergonomics preserved; worker bundle stays minimal. |
-| Injectable pool/workspace factories | Pass the DB/workspace into every repo call | Keeps platform API clean; supports global test setup via `setDatabasePool` in `globalSetup`. |
+| Injectable database pool + explicit service deps | Pass the DB/workspace into every low-level function | Keeps repository APIs small while making request-scoped Mastra/workspace dependencies explicit at service boundaries. |
 | Neon HTTP for repos + WebSocket for Mastra | HTTP for everything | Mastra's init DDL is multi-statement; HTTP rejects it. Two clients per request is acceptable (both are stateless or request-scoped). |
 | `disableInit: true` + out-of-band init | Let Mastra auto-init at runtime | Concurrent requests race to `ALTER TABLE` and deadlock. One-time init is explicit and debuggable. |
 | Four-layer test strategy with Neon branching | Single shared test DB + truncate | Stronger isolation; parallel CI friendly; revealed 3 real bugs during implementation. |
 | Firebase service account for test users | Pre-provisioned shared test account | Unique user per test run; `afterAll` cleanup is trivial. |
 | `@hono-workspace/platform/node` subpath export | Conditional module resolution | Explicit: consumers know they're opting into Node-only code. CF bundle stays clean. |
+| Explicit `PlatformDeps` for Mastra + workspace factory | Global workspace factory holder | Keeps request-scoped Worker I/O obvious, makes Node tests injectable, and avoids hidden mutable workspace state. |
+| Mount `MastraServer` under `/api/mastra/*` instead of building a harness abstraction | Custom "harness" layer wrapping each agent/workflow | Leans on Mastra's native surface (discovery, generate, stream, editor) for zero-cost. No framework-on-framework. |
+| Per-request `MastraServer` mount | Module-scoped cached instance | Matches our per-request Mastra pattern. Spike measured p95 2.4 ms mount latency — cheap enough not to optimize. |
+| Email-allowlist admin gate for `/api/mastra/stored/*` writes | Claims-based RBAC, per-org admin roles | Simplest control that fits today. `ADMIN_EMAILS` env var is easy to review, easy to rotate. |
+| Version targeting via query params only on specific domain routes | Global `?versionId` support everywhere | Only routes that wrap an editor-overridable agent need it. The Mastra-native routes already accept it natively. |
 
 ---
 
@@ -442,21 +523,37 @@ packages/platform/src/
 │   ├── migrations/*.sql                 # Platform DDL
 │   └── repositories/*.ts                # Per-table query modules
 ├── mastra/
-│   ├── create-mastra.ts                 # Mastra factory
+│   ├── create-mastra.ts                 # Mastra factory (agents + workflows + editor + storage)
 │   ├── storage.ts                       # PostgresStore + initMastraSchema
-│   ├── agents/project-agent.ts          # The project agent definition
-│   └── execution/execute-agent.ts       # Agent run orchestration
+│   ├── version.ts                       # parseAgentVersionFromQuery + getAgentWithVersion (async)
+│   ├── agents/
+│   │   ├── registry.ts                  # Code-defined agent registry
+│   │   ├── project-agent.ts             # Chat agent
+│   │   ├── summarizer.ts                # Document summarization agent
+│   │   ├── workspace-reviewer.ts        # Read-only review specialist
+│   │   └── workspace-supervisor.ts      # Supervisor over read-only specialists/workflows
+│   ├── tools/
+│   │   └── workspace-tools.ts           # read/list/write tools + toolkits
+│   ├── workflows/
+│   │   ├── registry.ts                  # Code-defined workflow registry
+│   │   └── ingest-pipeline.ts           # Two-step list→summarize workflow
+│   └── execution/
+│       ├── build-execution-context.ts   # Shared { requestContext, thread, resource } builder
+│       ├── execute-agent.ts             # project-agent run orchestration
+│       └── request-context.ts           # ProjectAgentRequestContext type + seeds
 ├── services/
 │   ├── access-control.ts, audit.ts, projects.ts
 │   ├── chat.ts                          # Channels/threads/messages + SSE
 │   ├── dev-bootstrap.ts                 # One-shot project setup
-│   └── project-context.ts               # Authorization
+│   ├── project-context.ts               # Authorization
+│   ├── summarization.ts                 # Tier B wrapper around summarizer
+│   └── supervisor.ts                    # Tier B wrapper around workspace supervisor
 ├── workspace/
-│   ├── factory.ts                       # Local (Node) factory registration
-│   ├── workspace-context.ts             # Injectable factory holder
-│   ├── provisioning.ts, reconciliation.ts, resolver.ts
+│   ├── resolver.ts                      # Per-project Workspace resolver
+│   ├── provisioning.ts, reconciliation.ts
 │   ├── paths.ts, locking.ts
 ├── env.ts                               # Env parser (WORKSPACE_ROOT optional)
+├── platform-deps.ts                     # Explicit { mastra, workspaceFactory } deps
 ├── index.ts                             # Public exports (CF-safe)
 └── node.ts                              # Node-only exports (subpath)
 
@@ -476,6 +573,12 @@ packages/app/
 │   ├── middleware/auth.ts
 │   └── routes/*.ts
 └── test/integration/*.integration.test.ts
+
+packages/ui/
+├── src/components/ui/*.tsx              # Shared UI primitives
+├── src/lib/utils.ts                     # cn() class merge helper
+├── src/styles.css                       # Shared Tailwind v4 theme/styles
+└── src/index.ts                         # Public UI exports
 ```
 
 ---
