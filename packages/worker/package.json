@@ -4,8 +4,8 @@
   "type": "module",
   "dependencies": {
     "@hono-workspace/platform": "workspace:*",
-    "@mastra/core": "1.24.1",
-    "@mastra/hono": "1.4.3",
+    "@mastra/core": "1.25.0",
+    "@mastra/hono": "1.4.4",
     "@mastra/s3": "latest",
     "@neondatabase/serverless": "^1.0.2",
     "hono": "4.12.12",

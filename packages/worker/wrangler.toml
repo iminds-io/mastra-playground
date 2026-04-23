@@ -2,3 +2,10 @@ name = "hono-workspace-api"
 main = "src/index.ts"
 compatibility_date = "2026-04-06"
 compatibility_flags = ["nodejs_compat"]
+
+# NOTE: the root `pnpm-workspace.yaml` registers a patch against
+# `@aws-sdk/xml-builder@3.972.17` that strips its `browser` package.json field.
+# Without that patch, wrangler's esbuild bundles the DOMParser-based XML
+# parser, which crashes every S3 response parse on CF Workers with
+# `ReferenceError: DOMParser is not defined`. If you see that error after a
+# dep bump, confirm the patch still applies cleanly (see patches/).

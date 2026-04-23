@@ -71,6 +71,12 @@ async function main() {
   await initMastraSchema(branch.connectionString);
   console.log(`[e2e] branch ${branch.branchId} ready`);
 
+  // Fixed admin emails for the E2E run. Two separate emails let the editor-admin
+  // and version-targeting test files each own their own admin Firebase user —
+  // Firebase rejects duplicate emails across users.
+  const e2eAdminEmail = `e2e-admin-${runId}@test.hono-workspace.local`;
+  const e2eAdminEmailSecondary = `e2e-admin-vt-${runId}@test.hono-workspace.local`;
+
   writeFileSync(devVarsPath, renderEnvContent({
     DATABASE_URL: branch.connectionString,
     FIREBASE_PROJECT_ID: process.env.FIREBASE_PROJECT_ID,
@@ -82,6 +88,7 @@ async function main() {
     R2_SECRET_ACCESS_KEY: process.env.R2_SECRET_ACCESS_KEY,
     R2_BUCKET_NAME: process.env.R2_BUCKET_NAME,
     WORKSPACE_ROOT: r2Prefix,
+    ADMIN_EMAILS: `${e2eAdminEmail},${e2eAdminEmailSecondary}`,
   }));
 
   const port = String(await findAvailablePort(HOST));
@@ -139,6 +146,8 @@ async function main() {
         ...process.env,
         WORKER_BASE_URL: baseUrl,
         TEST_R2_PREFIX: r2Prefix,
+        E2E_ADMIN_EMAIL: e2eAdminEmail,
+        E2E_ADMIN_EMAIL_SECONDARY: e2eAdminEmailSecondary,
       },
       stdio: 'inherit',
       detached: false,
