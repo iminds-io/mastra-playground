@@ -1,6 +1,6 @@
 import { createMiddleware } from 'hono/factory';
 
-import type { VerifiedFirebasePrincipal } from '@hono-workspace/platform';
+import type { VerifiedFirebasePrincipal } from '@mastra-mindspace/platform';
 
 export type AppBindings = {
   Variables: {

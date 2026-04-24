@@ -1,5 +1,5 @@
 // ABOUTME: Cloudflare Worker entry point — boots the Hono app with
-// ABOUTME: Neon serverless DB and R2-backed workspace filesystem.
+// ABOUTME: Neon serverless DB and R2-backed mindspace filesystem.
 
 import { Hono } from 'hono';
 import { neon } from '@neondatabase/serverless';
@@ -23,10 +23,16 @@ import {
   sendChannelMessageForPrincipal,
   streamChannelReplyForPrincipal,
   summarizeProjectDocsForPrincipal,
-  runWorkspaceSupervisorForPrincipal,
+  runMindspaceSupervisorForPrincipal,
+  listMindspaceMastraAgentsForPrincipal,
+  generateMindspaceMastraAgentForPrincipal,
+  streamMindspaceMastraAgentForPrincipal,
+  listMindspaceMastraWorkflowsForPrincipal,
+  createMindspaceMastraWorkflowRunForPrincipal,
+  startMindspaceMastraWorkflowForPrincipal,
   parseAgentVersionFromQuery,
-  type WorkspaceFactory,
-} from '@hono-workspace/platform';
+  type MindspaceFactory,
+} from '@mastra-mindspace/platform';
 
 type Env = {
   DATABASE_URL: string;
@@ -38,7 +44,7 @@ type Env = {
   R2_ACCESS_KEY_ID: string;
   R2_SECRET_ACCESS_KEY: string;
   R2_BUCKET_NAME: string;
-  WORKSPACE_ROOT: string;
+  MINDSPACE_ROOT: string;
   // Comma-separated list of Firebase emails allowed to mutate editor endpoints
   // (/api/mastra/stored/*). When empty or unset, write methods are rejected for
   // every authenticated caller. Read methods (GET/HEAD) stay available to all
@@ -52,12 +58,17 @@ type Principal = {
   name: string | null;
 };
 
+type StreamEvent = {
+  event: string;
+  data: Record<string, unknown>;
+};
+
 type HonoEnv = {
   Bindings: Env;
   Variables: {
     principal: Principal;
     mastra: ReturnType<typeof createMastra>;
-    workspaceFactory: WorkspaceFactory;
+    mindspaceFactory: MindspaceFactory;
   };
 };
 
@@ -77,7 +88,7 @@ function createNeonHttpPool(connectionString: string) {
 function bootRequest(env: Env) {
   setDatabasePool(createNeonHttpPool(env.DATABASE_URL));
 
-  const workspaceFactory: WorkspaceFactory = async (basePath: string) => {
+  const mindspaceFactory: MindspaceFactory = async (basePath: string) => {
     const filesystem = new S3Filesystem({
       bucket: env.R2_BUCKET_NAME,
       region: 'auto',
@@ -96,7 +107,42 @@ function bootRequest(env: Env) {
     openrouterModel: env.OPENROUTER_MODEL,
   });
 
-  return { mastra, workspaceFactory };
+  return { mastra, mindspaceFactory };
+}
+
+function createSseResponse(stream: AsyncIterable<StreamEvent>) {
+  const encoder = new TextEncoder();
+
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      async start(controller) {
+        try {
+          for await (const chunk of stream) {
+            controller.enqueue(
+              encoder.encode(`event: ${chunk.event}\ndata: ${JSON.stringify(chunk.data)}\n\n`),
+            );
+          }
+        } catch (error) {
+          controller.enqueue(
+            encoder.encode(
+              `event: error\ndata: ${JSON.stringify({
+                error: error instanceof Error ? error.message : 'Internal Server Error',
+              })}\n\n`,
+            ),
+          );
+        } finally {
+          controller.close();
+        }
+      },
+    }),
+    {
+      headers: {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-cache, no-transform',
+        connection: 'keep-alive',
+      },
+    },
+  );
 }
 
 const app = new Hono<HonoEnv>();
@@ -104,7 +150,7 @@ const app = new Hono<HonoEnv>();
 app.use('*', async (c, next) => {
   const deps = bootRequest(c.env);
   c.set('mastra', deps.mastra);
-  c.set('workspaceFactory', deps.workspaceFactory);
+  c.set('mindspaceFactory', deps.mindspaceFactory);
   await next();
 });
 
@@ -204,16 +250,16 @@ app.post('/api/dev/bootstrap-project', async (c) => {
 app.post('/api/projects/:projectId/admin/test', async (c) => {
   const principal = c.get('principal');
   const mastra = c.get('mastra');
-  const workspaceFactory = c.get('workspaceFactory');
+  const mindspaceFactory = c.get('mindspaceFactory');
   const body = await c.req.json<{ message?: string }>();
   const result = await executeProjectAgent({
     firebaseUid: principal.uid,
     projectId: c.req.param('projectId'),
     message: body.message ?? '',
-  }, { mastra, workspaceFactory });
+  }, { mastra, mindspaceFactory });
   return c.json({
     resourceId: result.resourceId,
-    workspaceRootPath: result.workspaceRootPath,
+    mindspaceRootPath: result.mindspaceRootPath,
     threadId: result.threadId,
     runId: result.runId,
     modelId: result.modelId,
@@ -224,7 +270,7 @@ app.post('/api/projects/:projectId/admin/test', async (c) => {
 app.post('/api/projects/:projectId/summarize', async (c) => {
   const principal = c.get('principal');
   const mastra = c.get('mastra');
-  const workspaceFactory = c.get('workspaceFactory');
+  const mindspaceFactory = c.get('mindspaceFactory');
   const body = await c.req.json<{ paths?: string[]; question?: string }>();
   const version = parseAgentVersionFromQuery({
     get: (name: string) => c.req.query(name) ?? null,
@@ -234,24 +280,110 @@ app.post('/api/projects/:projectId/summarize', async (c) => {
     projectId: c.req.param('projectId'),
     paths: body.paths ?? [],
     ...(body.question ? { question: body.question } : {}),
-  }, { mastra, workspaceFactory, ...(version ? { version } : {}) });
+  }, { mastra, mindspaceFactory, ...(version ? { version } : {}) });
   return c.json(result);
 });
 
 app.post('/api/projects/:projectId/supervise', async (c) => {
   const principal = c.get('principal');
   const mastra = c.get('mastra');
-  const workspaceFactory = c.get('workspaceFactory');
+  const mindspaceFactory = c.get('mindspaceFactory');
   const body = await c.req.json<{ prompt?: string; paths?: string[] }>();
   const version = parseAgentVersionFromQuery({
     get: (name: string) => c.req.query(name) ?? null,
   });
-  const result = await runWorkspaceSupervisorForPrincipal({
+  const result = await runMindspaceSupervisorForPrincipal({
     firebaseUid: principal.uid,
     projectId: c.req.param('projectId'),
     prompt: body.prompt ?? '',
     ...(Array.isArray(body.paths) ? { paths: body.paths } : {}),
-  }, { mastra, workspaceFactory, ...(version ? { version } : {}) });
+  }, { mastra, mindspaceFactory, ...(version ? { version } : {}) });
+  return c.json(result);
+});
+
+app.get('/api/projects/:projectId/mastra/agents', async (c) => {
+  const principal = c.get('principal');
+  const mastra = c.get('mastra');
+  const mindspaceFactory = c.get('mindspaceFactory');
+  const result = await listMindspaceMastraAgentsForPrincipal({
+    firebaseUid: principal.uid,
+    projectId: c.req.param('projectId'),
+  }, { mastra, mindspaceFactory });
+  return c.json(result);
+});
+
+app.post('/api/projects/:projectId/mastra/agents/:agentId/generate', async (c) => {
+  const principal = c.get('principal');
+  const mastra = c.get('mastra');
+  const mindspaceFactory = c.get('mindspaceFactory');
+  const body = await c.req.json<{ messages?: string; threadId?: string }>();
+  const version = parseAgentVersionFromQuery({
+    get: (name: string) => c.req.query(name) ?? null,
+  });
+  const result = await generateMindspaceMastraAgentForPrincipal({
+    firebaseUid: principal.uid,
+    projectId: c.req.param('projectId'),
+    agentId: c.req.param('agentId'),
+    messages: body.messages ?? '',
+    ...(body.threadId ? { threadId: body.threadId } : {}),
+  }, { mastra, mindspaceFactory, ...(version ? { version } : {}) });
+  return c.json(result);
+});
+
+app.post('/api/projects/:projectId/mastra/agents/:agentId/stream', async (c) => {
+  const principal = c.get('principal');
+  const mastra = c.get('mastra');
+  const mindspaceFactory = c.get('mindspaceFactory');
+  const body = await c.req.json<{ messages?: string; threadId?: string }>();
+  const version = parseAgentVersionFromQuery({
+    get: (name: string) => c.req.query(name) ?? null,
+  });
+  const stream = streamMindspaceMastraAgentForPrincipal({
+    firebaseUid: principal.uid,
+    projectId: c.req.param('projectId'),
+    agentId: c.req.param('agentId'),
+    messages: body.messages ?? '',
+    ...(body.threadId ? { threadId: body.threadId } : {}),
+  }, { mastra, mindspaceFactory, ...(version ? { version } : {}) });
+  return createSseResponse(stream);
+});
+
+app.get('/api/projects/:projectId/mastra/workflows', async (c) => {
+  const principal = c.get('principal');
+  const mastra = c.get('mastra');
+  const mindspaceFactory = c.get('mindspaceFactory');
+  const result = await listMindspaceMastraWorkflowsForPrincipal({
+    firebaseUid: principal.uid,
+    projectId: c.req.param('projectId'),
+  }, { mastra, mindspaceFactory });
+  return c.json(result);
+});
+
+app.post('/api/projects/:projectId/mastra/workflows/:workflowId/create-run', async (c) => {
+  const principal = c.get('principal');
+  const mastra = c.get('mastra');
+  const mindspaceFactory = c.get('mindspaceFactory');
+  const result = await createMindspaceMastraWorkflowRunForPrincipal({
+    firebaseUid: principal.uid,
+    projectId: c.req.param('projectId'),
+    workflowId: c.req.param('workflowId'),
+  }, { mastra, mindspaceFactory });
+  return c.json(result);
+});
+
+app.post('/api/projects/:projectId/mastra/workflows/:workflowId/start', async (c) => {
+  const principal = c.get('principal');
+  const mastra = c.get('mastra');
+  const mindspaceFactory = c.get('mindspaceFactory');
+  const body = await c.req.json<{ runId?: string; inputData?: unknown; threadId?: string }>();
+  const result = await startMindspaceMastraWorkflowForPrincipal({
+    firebaseUid: principal.uid,
+    projectId: c.req.param('projectId'),
+    workflowId: c.req.param('workflowId'),
+    ...(body.runId ? { runId: body.runId } : {}),
+    ...(body.threadId ? { threadId: body.threadId } : {}),
+    inputData: body.inputData,
+  }, { mastra, mindspaceFactory });
   return c.json(result);
 });
 
@@ -279,26 +411,26 @@ app.post('/api/projects/:projectId/channels', async (c) => {
 app.get('/api/projects/:projectId/channels/:channelId/feed', async (c) => {
   const principal = c.get('principal');
   const mastra = c.get('mastra');
-  const workspaceFactory = c.get('workspaceFactory');
+  const mindspaceFactory = c.get('mindspaceFactory');
   const result = await listChannelFeedForPrincipal({
     firebaseUid: principal.uid,
     projectId: c.req.param('projectId'),
     channelId: c.req.param('channelId'),
-  }, { mastra, workspaceFactory });
+  }, { mastra, mindspaceFactory });
   return c.json(result);
 });
 
 app.post('/api/projects/:projectId/channels/:channelId/posts', async (c) => {
   const principal = c.get('principal');
   const mastra = c.get('mastra');
-  const workspaceFactory = c.get('workspaceFactory');
+  const mindspaceFactory = c.get('mindspaceFactory');
   const body = await c.req.json<{ message?: string }>();
   const result = await createChannelPostForPrincipal({
     firebaseUid: principal.uid,
     projectId: c.req.param('projectId'),
     channelId: c.req.param('channelId'),
     message: body.message ?? '',
-  }, { mastra, workspaceFactory });
+  }, { mastra, mindspaceFactory });
   return c.json(result);
 });
 
@@ -315,34 +447,34 @@ app.get('/api/projects/:projectId/channels/:channelId/threads', async (c) => {
 app.post('/api/projects/:projectId/channels/:channelId/threads', async (c) => {
   const principal = c.get('principal');
   const mastra = c.get('mastra');
-  const workspaceFactory = c.get('workspaceFactory');
+  const mindspaceFactory = c.get('mindspaceFactory');
   const body = await c.req.json<{ title?: string }>();
   const result = await createChannelThreadForPrincipal({
     firebaseUid: principal.uid,
     projectId: c.req.param('projectId'),
     channelId: c.req.param('channelId'),
     title: body.title ?? null,
-  }, { mastra, workspaceFactory });
+  }, { mastra, mindspaceFactory });
   return c.json(result);
 });
 
 app.get('/api/projects/:projectId/channels/:channelId/threads/:threadId', async (c) => {
   const principal = c.get('principal');
   const mastra = c.get('mastra');
-  const workspaceFactory = c.get('workspaceFactory');
+  const mindspaceFactory = c.get('mindspaceFactory');
   const result = await getChannelThreadForPrincipal({
     firebaseUid: principal.uid,
     projectId: c.req.param('projectId'),
     channelId: c.req.param('channelId'),
     threadId: c.req.param('threadId'),
-  }, { mastra, workspaceFactory });
+  }, { mastra, mindspaceFactory });
   return c.json(result);
 });
 
 app.post('/api/projects/:projectId/channels/:channelId/threads/:threadId/messages', async (c) => {
   const principal = c.get('principal');
   const mastra = c.get('mastra');
-  const workspaceFactory = c.get('workspaceFactory');
+  const mindspaceFactory = c.get('mindspaceFactory');
   const body = await c.req.json<{ message?: string }>();
   const result = await sendChannelMessageForPrincipal({
     firebaseUid: principal.uid,
@@ -350,14 +482,14 @@ app.post('/api/projects/:projectId/channels/:channelId/threads/:threadId/message
     channelId: c.req.param('channelId'),
     threadId: c.req.param('threadId'),
     message: body.message ?? '',
-  }, { mastra, workspaceFactory });
+  }, { mastra, mindspaceFactory });
   return c.json(result);
 });
 
 app.post('/api/projects/:projectId/channels/:channelId/threads/:threadId/messages/stream', async (c) => {
   const principal = c.get('principal');
   const mastra = c.get('mastra');
-  const workspaceFactory = c.get('workspaceFactory');
+  const mindspaceFactory = c.get('mindspaceFactory');
   const body = await c.req.json<{ message?: string }>();
   const stream = await streamChannelReplyForPrincipal({
     firebaseUid: principal.uid,
@@ -365,7 +497,7 @@ app.post('/api/projects/:projectId/channels/:channelId/threads/:threadId/message
     channelId: c.req.param('channelId'),
     threadId: c.req.param('threadId'),
     ...(typeof body.message === 'string' ? { message: body.message } : {}),
-  }, { mastra, workspaceFactory });
+  }, { mastra, mindspaceFactory });
 
   const encoder = new TextEncoder();
   return new Response(

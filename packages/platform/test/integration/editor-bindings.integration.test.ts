@@ -3,8 +3,8 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { pool } from '../../src/db/client';
 import { createOrganization } from '../../src/db/repositories/organizations';
 import { createProject } from '../../src/db/repositories/projects';
-import { createWorkspaceBinding, getActiveWorkspaceBinding } from '../../src/db/repositories/workspace-bindings';
-import { createWorkspaceRoot } from '../../src/db/repositories/workspace-roots';
+import { createMindspaceBinding, getActiveMindspaceBinding } from '../../src/db/repositories/mindspace-bindings';
+import { createMindspaceRoot } from '../../src/db/repositories/mindspace-roots';
 
 describe('workspace bindings', () => {
   beforeEach(async () => {
@@ -12,11 +12,11 @@ describe('workspace bindings', () => {
       truncate table
         channel_threads,
         project_channels,
-        workspace_provisioning_jobs,
-        workspace_events,
-        workspace_locks,
-        workspace_bindings,
-        workspace_roots,
+        mindspace_provisioning_jobs,
+        mindspace_events,
+        mindspace_locks,
+        mindspace_bindings,
+        mindspace_roots,
         organization_memberships,
         projects,
         users,
@@ -35,16 +35,16 @@ describe('workspace bindings', () => {
       name: 'Demo Project',
       slug: 'demo-project',
     });
-    const root = await createWorkspaceRoot({
+    const root = await createMindspaceRoot({
       organizationId: organization.id,
       projectId: project.id,
       rootPath: '/tmp/demo-project',
       status: 'ready',
     });
 
-    await createWorkspaceBinding({
+    await createMindspaceBinding({
       projectId: project.id,
-      workspaceRootId: root.id,
+      mindspaceRootId: root.id,
       activeAgentRef: 'default',
       activeAgentVersion: 'v1',
       policyJson: {
@@ -52,7 +52,7 @@ describe('workspace bindings', () => {
       },
     });
 
-    const binding = await getActiveWorkspaceBinding(project.id);
+    const binding = await getActiveMindspaceBinding(project.id);
 
     expect(binding?.active_agent_ref).toBe('default');
     expect(binding?.active_agent_version).toBe('v1');

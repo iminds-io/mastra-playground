@@ -2,7 +2,7 @@ export type RawEnv = Record<string, string | undefined>;
 
 export type ParsedEnv = {
   databaseUrl: string;
-  workspaceRoot: string;
+  mindspaceRoot: string;
   firebaseProjectId: string;
   firebaseApiKey: string;
   port: number;
@@ -19,7 +19,7 @@ export function parseEnv(env: RawEnv): ParsedEnv {
 
   return {
     databaseUrl: env.DATABASE_URL!,
-    workspaceRoot: env.WORKSPACE_ROOT ?? '',
+    mindspaceRoot: env.MINDSPACE_ROOT ?? '',
     firebaseProjectId: env.FIREBASE_PROJECT_ID!,
     firebaseApiKey: env.FIREBASE_TOKEN!,
     port: Number(env.PORT ?? 3000),

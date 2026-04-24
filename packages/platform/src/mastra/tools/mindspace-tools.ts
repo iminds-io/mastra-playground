@@ -1,4 +1,4 @@
-// ABOUTME: Mastra-native workspace tools exposed to agents as callable functions.
+// ABOUTME: Mastra-native mindspace tools exposed to agents as callable functions.
 // ABOUTME: Toolkits bundle these so agents register a consistent set of file-system capabilities.
 
 import { createTool } from '@mastra/core/tools';
@@ -13,10 +13,10 @@ function requireFilesystem(workspace: Workspace | undefined) {
 }
 
 export const readFileTool = createTool({
-  id: 'workspace.readFile',
+  id: 'mindspace.readFile',
   description: 'Read the contents of a file within the active workspace.',
   inputSchema: z.object({
-    path: z.string().describe('Path relative to the workspace root.'),
+    path: z.string().describe('Path relative to the mindspace root.'),
   }),
   outputSchema: z.object({
     content: z.string(),
@@ -31,10 +31,10 @@ export const readFileTool = createTool({
 });
 
 export const listDirTool = createTool({
-  id: 'workspace.listDir',
-  description: 'List files and directories within a workspace directory.',
+  id: 'mindspace.listDir',
+  description: 'List files and directories within a mindspace directory.',
   inputSchema: z.object({
-    path: z.string().describe('Directory path relative to the workspace root. Use "." for the workspace root.'),
+    path: z.string().describe('Directory path relative to the mindspace root. Use "." for the mindspace root.'),
     recursive: z.boolean().optional().describe('When true, descend into subdirectories.'),
   }),
   outputSchema: z.object({
@@ -49,10 +49,10 @@ export const listDirTool = createTool({
 });
 
 export const writeFileTool = createTool({
-  id: 'workspace.writeFile',
+  id: 'mindspace.writeFile',
   description: 'Write UTF-8 text content to a file in the active workspace, creating the file (and any missing parent directories) if needed.',
   inputSchema: z.object({
-    path: z.string().describe('Path relative to the workspace root.'),
+    path: z.string().describe('Path relative to the mindspace root.'),
     content: z.string().describe('UTF-8 text content to write.'),
   }),
   outputSchema: z.object({
@@ -69,12 +69,12 @@ export const writeFileTool = createTool({
   },
 });
 
-export const workspaceReadOnlyToolkit = {
+export const mindspaceReadOnlyToolkit = {
   readFile: readFileTool,
   listDir: listDirTool,
 };
 
-export const workspaceToolkit = {
-  ...workspaceReadOnlyToolkit,
+export const mindspaceToolkit = {
+  ...mindspaceReadOnlyToolkit,
   writeFile: writeFileTool,
 };

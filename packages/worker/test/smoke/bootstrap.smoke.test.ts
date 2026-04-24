@@ -25,7 +25,7 @@ afterAll(async () => {
 });
 
 describe.skipIf(!shouldRun)('deployed worker bootstrap', { timeout: 60_000 }, () => {
-  it('bootstrap-project creates a real project with workspace and channel', async () => {
+  it('bootstrap-project creates a real project with mindspace and channel', async () => {
     const user = await createTestUser();
     createdUsers.push(user);
 
@@ -42,12 +42,12 @@ describe.skipIf(!shouldRun)('deployed worker bootstrap', { timeout: 60_000 }, ()
       projectId: string;
       organizationId: string;
       defaultChannelId: string;
-      workspaceRootPath: string;
+      mindspaceRootPath: string;
     };
     expect(body.projectId).toBeTruthy();
     expect(body.organizationId).toBeTruthy();
     expect(body.defaultChannelId).toBeTruthy();
-    expect(body.workspaceRootPath).toBeTruthy();
+    expect(body.mindspaceRootPath).toBeTruthy();
 
     // NOTE: The project persists in production DB. Firebase user is cleaned up
     // in afterAll, but the project/org rows remain under the (now-deleted) UID.

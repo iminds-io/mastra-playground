@@ -15,7 +15,7 @@ function createValidInput(): ExecutionContextInput {
       role: 'owner',
       resourceId: 'project:project-1',
     },
-    workspaceRootPath: '/tmp/workspaces/project-1',
+    mindspaceRootPath: '/tmp/workspaces/project-1',
     workspace: { filesystem: {} } as never,
     resourceId: 'channel:channel-1',
     threadId: 'thread-1',
@@ -33,7 +33,7 @@ describe('buildExecutionContext — happy path', () => {
 
     expect(execution.resourceId).toBe('channel:channel-1');
     expect(execution.threadId).toBe('thread-1');
-    expect(execution.workspaceRootPath).toBe('/tmp/workspaces/project-1');
+    expect(execution.mindspaceRootPath).toBe('/tmp/workspaces/project-1');
     expect(execution.requestContext.get('resourceId')).toBe('project:project-1');
     expect(execution.requestContext.get('actorUserId')).toBe('user-1');
     expect(execution.requestContext.get('organizationId')).toBe('org-1');
@@ -76,8 +76,8 @@ describe('buildExecutionContext — validation', () => {
     });
   }
 
-  const requiredTopLevelStringFields: Array<'workspaceRootPath' | 'resourceId' | 'threadId'> = [
-    'workspaceRootPath',
+  const requiredTopLevelStringFields: Array<'mindspaceRootPath' | 'resourceId' | 'threadId'> = [
+    'mindspaceRootPath',
     'resourceId',
     'threadId',
   ];

@@ -1,7 +1,7 @@
 /* ABOUTME: App-level styles for packages/web */
 /* ABOUTME: Imports design system tokens then defines structural layout rules */
 
-@import "@hono-workspace/ui/styles.css";
+@import "@mastra-mindspace/ui/styles.css";
 
 /* ─── App background ─────────────────────────────────────────────────────── */
 body {
@@ -20,7 +20,7 @@ body {
   min-height: 100vh;
 }
 
-.workspace-shell {
+.mindspace-shell {
   display: grid;
   grid-template-columns: 20rem minmax(0, 1fr) 24rem;
   min-height: 100vh;
@@ -61,12 +61,12 @@ body {
   margin-top: auto;
 }
 
-.workspace-list {
+.mindspace-list {
   display: grid;
   gap: 0.7rem;
 }
 
-.workspace-button {
+.mindspace-button {
   width: 100%;
   text-align: left;
   background: transparent;
@@ -78,29 +78,29 @@ body {
   transition: background 160ms ease;
 }
 
-.workspace-button:hover:not(:disabled) {
+.mindspace-button:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.05);
 }
 
-.workspace-button-active {
+.mindspace-button-active {
   background: oklch(from var(--primary) l c h / 0.18);
   border-color: oklch(from var(--primary) l c h / 0.2);
 }
 
-.workspace-button-name {
+.mindspace-button-name {
   display: block;
   font-weight: 600;
   font-family: var(--font-heading);
   font-size: 0.9rem;
 }
 
-.workspace-button-slug {
+.mindspace-button-slug {
   display: block;
   font-size: 0.75rem;
   color: var(--muted-foreground);
 }
 
-.workspace-channels {
+.mindspace-channels {
   display: grid;
   gap: 0.2rem;
   margin: 0.3rem 0 0.4rem 0.85rem;
@@ -108,7 +108,7 @@ body {
   border-left: 2px solid oklch(from var(--primary) l c h / 0.28);
 }
 
-.workspace-channels-actions {
+.mindspace-channels-actions {
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 0.4rem;
@@ -325,7 +325,7 @@ pre {
 
 /* ─── Responsive breakpoints ─────────────────────────────────────────────── */
 @media (max-width: 1100px) {
-  .workspace-shell {
+  .mindspace-shell {
     grid-template-columns: 18rem minmax(0, 1fr);
   }
 
@@ -338,7 +338,7 @@ pre {
 
 @media (max-width: 768px) {
   .admin-shell,
-  .workspace-shell {
+  .mindspace-shell {
     grid-template-columns: 1fr;
   }
 

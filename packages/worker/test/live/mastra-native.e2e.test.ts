@@ -32,16 +32,16 @@ describe.skipIf(!shouldRun)('Mastra native surface (Tier A)', { timeout: 120_000
     expect(Object.keys(body)).toEqual(expect.arrayContaining([
       'project-agent',
       'summarizer',
-      'workspace-reviewer',
-      'workspace-supervisor',
+      'mindspace-reviewer',
+      'mindspace-supervisor',
     ]));
   });
 
-  it('POST /api/mastra/agents/workspace-reviewer/generate returns a model reply', async () => {
+  it('POST /api/mastra/agents/mindspace-reviewer/generate returns a model reply', async () => {
     const user = await createTestUser();
     createdUsers.push(user);
 
-    const res = await fetch(`${baseUrl}/api/mastra/agents/workspace-reviewer/generate`, {
+    const res = await fetch(`${baseUrl}/api/mastra/agents/mindspace-reviewer/generate`, {
       method: 'POST',
       headers: {
         authorization: `Bearer ${user.idToken}`,

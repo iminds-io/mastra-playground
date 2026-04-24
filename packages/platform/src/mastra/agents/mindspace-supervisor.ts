@@ -1,34 +1,34 @@
-// ABOUTME: Supervisor agent for coordinating safe read-only workspace specialists.
+// ABOUTME: Supervisor agent for coordinating safe read-only mindspace specialists.
 // ABOUTME: Uses normal generate/stream supervisor behavior; do not use deprecated .network().
 
 import type { Agent } from '@mastra/core/agent';
 import type { Workflow } from '@mastra/core/workflows';
 
-import { workspaceReadOnlyToolkit } from '../tools/workspace-tools';
-import { buildWorkspaceAgent } from './build-agent';
+import { mindspaceReadOnlyToolkit } from '../tools/mindspace-tools';
+import { buildMindspaceAgent } from './build-agent';
 import type { ProjectAgentConfig } from './project-agent';
 
-export type WorkspaceSupervisorDeps = {
+export type MindspaceSupervisorDeps = {
   agents: Record<string, Agent<any, any, any, any>>;
   workflows: Record<string, Workflow<any, any, any, any, any, any, any, any>>;
 };
 
-export function createWorkspaceSupervisorAgent(
-  deps: WorkspaceSupervisorDeps,
+export function createMindspaceSupervisorAgent(
+  deps: MindspaceSupervisorDeps,
   config: ProjectAgentConfig = {},
 ) {
-  return buildWorkspaceAgent({
-    id: 'workspace-supervisor' as const,
-    name: 'Workspace Supervisor',
+  return buildMindspaceAgent({
+    id: 'mindspace-supervisor' as const,
+    name: 'Mindspace Supervisor',
     description: [
-      'Coordinates read-only workspace specialists for project analysis, summarization, and review.',
+      'Coordinates read-only mindspace specialists for project analysis, summarization, and review.',
       'Use when a request may require more than one specialist or a workflow.',
     ].join(' '),
     instructions: ({ requestContext }) => [
-      'You coordinate safe read-only specialists for a project workspace.',
+      'You coordinate safe read-only specialists for a project mindspace.',
       'Available specialists:',
-      '- summarizer: summarizes selected workspace documents.',
-      '- workspaceReviewer: reviews files for risks, stale docs, and missing tests.',
+      '- summarizer: summarizes selected mindspace documents.',
+      '- mindspaceReviewer: reviews files for risks, stale docs, and missing tests.',
       'Available workflows:',
       '- ingestPipeline: lists markdown files and summarizes them.',
       'Delegate when a specialist is better suited than answering directly.',
@@ -37,7 +37,7 @@ export function createWorkspaceSupervisorAgent(
       `Project: ${requestContext.get('projectId')}`,
       `Caller role: ${requestContext.get('role')}`,
     ].join('\n'),
-    toolkit: workspaceReadOnlyToolkit,
+    toolkit: mindspaceReadOnlyToolkit,
     agents: deps.agents,
     workflows: deps.workflows,
     defaultOptions: {

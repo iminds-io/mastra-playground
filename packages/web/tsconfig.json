@@ -5,8 +5,8 @@
     "lib": ["DOM", "DOM.Iterable", "ES2023"],
     "types": ["vite/client"],
     "paths": {
-      "@hono-workspace/ui": ["../ui/src/index.ts"],
-      "@hono-workspace/ui/styles.css": ["../ui/src/styles.css"]
+      "@mastra-mindspace/ui": ["../ui/src/index.ts"],
+      "@mastra-mindspace/ui/styles.css": ["../ui/src/styles.css"]
     }
   },
   "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"]

@@ -1,4 +1,4 @@
-// ABOUTME: Public API surface for the @hono-workspace/ui design system package
+// ABOUTME: Public API surface for the @mastra-mindspace/ui design system package
 // ABOUTME: Re-exports all components and the cn() utility
 
 export { cn } from './lib/utils';

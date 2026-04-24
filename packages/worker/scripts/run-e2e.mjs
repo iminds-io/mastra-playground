@@ -13,7 +13,7 @@ import { config } from 'dotenv';
 import { findAvailablePort, waitForServer } from '../test/helpers/live-smoke-utils.ts';
 import { createTestBranch } from '../test/helpers/test-db.ts';
 import { cleanupPrefix } from '../test/helpers/test-r2.ts';
-import { initMastraSchema } from '@hono-workspace/platform';
+import { initMastraSchema } from '@mastra-mindspace/platform';
 
 const HOST = '127.0.0.1';
 const scriptDir = dirname(fileURLToPath(import.meta.url));
@@ -74,8 +74,8 @@ async function main() {
   // Fixed admin emails for the E2E run. Two separate emails let the editor-admin
   // and version-targeting test files each own their own admin Firebase user —
   // Firebase rejects duplicate emails across users.
-  const e2eAdminEmail = `e2e-admin-${runId}@test.hono-workspace.local`;
-  const e2eAdminEmailSecondary = `e2e-admin-vt-${runId}@test.hono-workspace.local`;
+  const e2eAdminEmail = `e2e-admin-${runId}@test.mastra-mindspace.local`;
+  const e2eAdminEmailSecondary = `e2e-admin-vt-${runId}@test.mastra-mindspace.local`;
 
   writeFileSync(devVarsPath, renderEnvContent({
     DATABASE_URL: branch.connectionString,
@@ -87,7 +87,7 @@ async function main() {
     R2_ACCESS_KEY_ID: process.env.R2_ACCESS_KEY_ID,
     R2_SECRET_ACCESS_KEY: process.env.R2_SECRET_ACCESS_KEY,
     R2_BUCKET_NAME: process.env.R2_BUCKET_NAME,
-    WORKSPACE_ROOT: r2Prefix,
+    MINDSPACE_ROOT: r2Prefix,
     ADMIN_EMAILS: `${e2eAdminEmail},${e2eAdminEmailSecondary}`,
   }));
 

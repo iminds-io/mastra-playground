@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildWorkspaceAgent } from '../../src/mastra/agents/build-agent';
+import { buildMindspaceAgent } from '../../src/mastra/agents/build-agent';
 
-describe('buildWorkspaceAgent', () => {
+describe('buildMindspaceAgent', () => {
   it('can attach subagents, workflows, and default execution options for supervisor agents', async () => {
-    const child = buildWorkspaceAgent({
+    const child = buildMindspaceAgent({
       id: 'child-agent',
       name: 'Child Agent',
       description: 'Test child.',
@@ -13,7 +13,7 @@ describe('buildWorkspaceAgent', () => {
       config: { openrouterApiKey: 'test-key' },
     });
 
-    const parent = buildWorkspaceAgent({
+    const parent = buildMindspaceAgent({
       id: 'parent-agent',
       name: 'Parent Agent',
       description: 'Test parent.',

@@ -1,21 +1,21 @@
-// ABOUTME: Project-scoped Tier B surface for the workspace supervisor agent.
+// ABOUTME: Project-scoped Tier B surface for the mindspace supervisor agent.
 // ABOUTME: Handles authorization, workspace resolution, context seeding, and response shaping.
 
 import { buildExecutionContext } from '../mastra/execution/build-execution-context';
 import { getAgentWithVersion, type AgentVersionOpts } from '../mastra/version';
 import type { PlatformDeps } from '../platform-deps';
-import { resolveWorkspaceForProject } from '../workspace/resolver';
+import { resolveMindspaceForProject } from '../mindspace/resolver';
 import { AccessDeniedError } from './access-control';
 import { loadProjectContext } from './project-context';
 
-export type WorkspaceSupervisorInput = {
+export type MindspaceSupervisorInput = {
   firebaseUid: string;
   projectId: string;
   prompt: string;
   paths?: string[];
 };
 
-export type WorkspaceSupervisorResult = {
+export type MindspaceSupervisorResult = {
   projectId: string;
   text: string;
   runId?: string;
@@ -23,29 +23,29 @@ export type WorkspaceSupervisorResult = {
 };
 
 function deriveResourceId(projectId: string) {
-  return `harness:workspace-supervisor:project:${projectId}`;
+  return `harness:mindspace-supervisor:project:${projectId}`;
 }
 
 function deriveThreadId() {
-  return `workspace-supervisor:${Date.now()}`;
+  return `mindspace-supervisor:${Date.now()}`;
 }
 
-function renderPrompt(input: WorkspaceSupervisorInput) {
+function renderPrompt(input: MindspaceSupervisorInput) {
   const prompt = input.prompt.trim();
   const paths = input.paths?.filter((path) => path.trim().length > 0) ?? [];
 
   return [
     prompt,
     ...(paths.length > 0
-      ? ['', 'Relevant workspace paths:', ...paths.map((path) => `- ${path}`)]
+      ? ['', 'Relevant mindspace paths:', ...paths.map((path) => `- ${path}`)]
       : []),
   ].join('\n');
 }
 
-export async function runWorkspaceSupervisorForPrincipal(
-  input: WorkspaceSupervisorInput,
+export async function runMindspaceSupervisorForPrincipal(
+  input: MindspaceSupervisorInput,
   deps: PlatformDeps & { version?: AgentVersionOpts },
-): Promise<WorkspaceSupervisorResult> {
+): Promise<MindspaceSupervisorResult> {
   if (input.prompt.trim().length === 0) {
     throw new AccessDeniedError('Prompt is required');
   }
@@ -54,18 +54,18 @@ export async function runWorkspaceSupervisorForPrincipal(
     firebaseUid: input.firebaseUid,
     projectId: input.projectId,
   });
-  const resolved = await resolveWorkspaceForProject(input.projectId, {
-    workspaceFactory: deps.workspaceFactory,
+  const resolved = await resolveMindspaceForProject(input.projectId, {
+    mindspaceFactory: deps.mindspaceFactory,
   });
   const execution = buildExecutionContext({
     projectContext,
-    workspaceRootPath: resolved.root.root_path,
+    mindspaceRootPath: resolved.root.root_path,
     workspace: resolved.workspace,
     resourceId: deriveResourceId(input.projectId),
     threadId: deriveThreadId(),
   });
 
-  const agent = await getAgentWithVersion(deps.mastra, 'workspace-supervisor', deps.version);
+  const agent = await getAgentWithVersion(deps.mastra, 'mindspace-supervisor', deps.version);
   const output = await agent.generate(renderPrompt(input), {
     requestContext: execution.requestContext,
     memory: { thread: execution.threadId, resource: execution.resourceId },

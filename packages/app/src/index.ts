@@ -1,7 +1,7 @@
 import { config } from 'dotenv';
 import { serve } from '@hono/node-server';
 
-import '@hono-workspace/platform/node';
+import '@mastra-mindspace/platform/node';
 import { createApp } from './server/factory';
 
 config();

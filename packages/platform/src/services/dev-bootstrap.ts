@@ -4,7 +4,7 @@ import { createProjectChannel } from '../db/repositories/project-channels';
 import { createProject } from '../db/repositories/projects';
 import { upsertUser } from '../db/repositories/users';
 import { addOrganizationMembership } from '../db/repositories/memberships';
-import { provisionWorkspaceForProject } from '../workspace/provisioning';
+import { provisionMindspaceForProject } from '../mindspace/provisioning';
 
 function slugifyProjectName(name: string): string {
   return name
@@ -48,20 +48,20 @@ export async function bootstrapProjectForPrincipal(input: {
     slug: `${slugifyProjectName(projectName)}-${Date.now().toString(36)}`,
   });
 
-  const provisioned = await provisionWorkspaceForProject({
+  const provisioned = await provisionMindspaceForProject({
     organizationId: organization.id,
     projectId: project.id,
     requestedBy: user.id,
     activeAgentRef: 'default',
     activeAgentVersion: 'v1',
-    workspaceRoot: env.workspaceRoot,
+    mindspaceRoot: env.mindspaceRoot,
   });
 
   const defaultChannel = await createProjectChannel({
     projectId: project.id,
     name: 'general',
     slug: 'general',
-    description: 'Default workspace chat channel',
+    description: 'Default mindspace chat channel',
     createdBy: user.id,
   });
 
@@ -69,7 +69,7 @@ export async function bootstrapProjectForPrincipal(input: {
     projectId: project.id,
     organizationId: organization.id,
     defaultChannelId: defaultChannel.id,
-    workspaceRootPath: provisioned.root.root_path,
+    mindspaceRootPath: provisioned.root.root_path,
     project: {
       id: project.id,
       organizationId: organization.id,

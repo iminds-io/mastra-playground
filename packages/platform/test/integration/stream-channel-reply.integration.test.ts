@@ -11,11 +11,11 @@ describe('streamChannelReplyForPrincipal', () => {
       truncate table
         channel_threads,
         project_channels,
-        workspace_provisioning_jobs,
-        workspace_events,
-        workspace_locks,
-        workspace_bindings,
-        workspace_roots,
+        mindspace_provisioning_jobs,
+        mindspace_events,
+        mindspace_locks,
+        mindspace_bindings,
+        mindspace_roots,
         organization_memberships,
         projects,
         users,
@@ -55,7 +55,7 @@ describe('streamChannelReplyForPrincipal', () => {
           channelId: channel.channel.id,
           message: 'hello',
         },
-        { mastra, workspaceFactory: fixture.workspaceFactory },
+        { mastra, mindspaceFactory: fixture.mindspaceFactory },
       );
 
       const events: Array<{ event: string; data: Record<string, unknown> }> = [];
@@ -67,7 +67,7 @@ describe('streamChannelReplyForPrincipal', () => {
           threadId: post.thread.id,
           message: 'respond with the single word "ok"',
         },
-        { mastra, workspaceFactory: fixture.workspaceFactory },
+        { mastra, mindspaceFactory: fixture.mindspaceFactory },
       )) {
         events.push(ev);
       }

@@ -54,7 +54,7 @@ export async function createTestUser(options?: {
 }): Promise<TestFirebaseUser> {
   initFirebaseAdmin();
   const uid = options?.uid ?? `test-${randomUUID()}`;
-  const email = options?.email ?? `${uid}@test.hono-workspace.local`;
+  const email = options?.email ?? `${uid}@test.mastra-mindspace.local`;
   const displayName = options?.displayName ?? uid;
 
   await admin.auth().createUser({ uid, email, displayName });

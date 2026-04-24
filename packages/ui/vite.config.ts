@@ -1,4 +1,4 @@
-// ABOUTME: Vite/Vitest configuration for the @hono-workspace/ui package
+// ABOUTME: Vite/Vitest configuration for the @mastra-mindspace/ui package
 // ABOUTME: Runs component tests in jsdom environment
 
 import react from '@vitejs/plugin-react';

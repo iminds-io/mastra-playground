@@ -8,11 +8,11 @@ describe('summarizeProjectDocsForPrincipal', () => {
       truncate table
         channel_threads,
         project_channels,
-        workspace_provisioning_jobs,
-        workspace_events,
-        workspace_locks,
-        workspace_bindings,
-        workspace_roots,
+        mindspace_provisioning_jobs,
+        mindspace_events,
+        mindspace_locks,
+        mindspace_bindings,
+        mindspace_roots,
         organization_memberships,
         projects,
         users,
@@ -41,7 +41,7 @@ describe('summarizeProjectDocsForPrincipal', () => {
           projectId: fixture.project.id,
           paths: ['docs/example.md', 'README.md'],
           question: 'Reply with the single word "ok".',
-        }, { mastra, workspaceFactory: fixture.workspaceFactory });
+        }, { mastra, mindspaceFactory: fixture.mindspaceFactory });
 
         expect(result.projectId).toBe(fixture.project.id);
         expect(result.paths).toEqual(['docs/example.md', 'README.md']);
@@ -64,7 +64,7 @@ describe('summarizeProjectDocsForPrincipal', () => {
         firebaseUid: fixture.user.firebaseUid,
         projectId: fixture.project.id,
         paths: [],
-      }, { mastra, workspaceFactory: fixture.workspaceFactory }),
+      }, { mastra, mindspaceFactory: fixture.mindspaceFactory }),
     ).rejects.toThrow('At least one path is required');
   });
 });

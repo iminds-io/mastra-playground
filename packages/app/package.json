@@ -1,9 +1,9 @@
 {
-  "name": "@hono-workspace/app",
+  "name": "@mastra-mindspace/app",
   "private": true,
   "type": "module",
   "dependencies": {
-    "@hono-workspace/platform": "workspace:*",
+    "@mastra-mindspace/platform": "workspace:*",
     "@hono/node-server": "1.19.13",
     "@mastra/core": "1.25.0",
     "@mastra/hono": "1.4.3",

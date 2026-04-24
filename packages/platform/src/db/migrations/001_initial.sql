@@ -39,7 +39,7 @@ create table if not exists projects (
   unique (organization_id, slug)
 );
 
-create table if not exists workspace_roots (
+create table if not exists mindspace_roots (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references organizations(id),
   project_id uuid not null references projects(id),
@@ -54,15 +54,15 @@ create table if not exists workspace_roots (
   updated_at timestamptz not null default now()
 );
 
-create unique index if not exists workspace_roots_active_project_idx
-  on workspace_roots(project_id)
+create unique index if not exists mindspace_roots_active_project_idx
+  on mindspace_roots(project_id)
   where archived_at is null;
 
-create table if not exists workspace_bindings (
+create table if not exists mindspace_bindings (
   id uuid primary key default gen_random_uuid(),
   project_id uuid not null references projects(id),
-  workspace_root_id uuid not null references workspace_roots(id),
-  editor_workspace_ref text,
+  mindspace_root_id uuid not null references mindspace_roots(id),
+  editor_mindspace_ref text,
   active_agent_ref text not null,
   active_agent_version text not null,
   policy_json jsonb not null,
@@ -71,34 +71,34 @@ create table if not exists workspace_bindings (
   updated_at timestamptz not null default now()
 );
 
-create unique index if not exists workspace_bindings_active_project_idx
-  on workspace_bindings(project_id)
+create unique index if not exists mindspace_bindings_active_project_idx
+  on mindspace_bindings(project_id)
   where archived_at is null;
 
-create table if not exists workspace_locks (
+create table if not exists mindspace_locks (
   id uuid primary key default gen_random_uuid(),
-  workspace_root_id uuid not null references workspace_roots(id),
+  mindspace_root_id uuid not null references mindspace_roots(id),
   lock_type text not null,
   holder text not null,
   expires_at timestamptz not null,
   created_at timestamptz not null default now()
 );
 
-create index if not exists workspace_locks_lookup_idx
-  on workspace_locks(workspace_root_id, expires_at);
+create index if not exists mindspace_locks_lookup_idx
+  on mindspace_locks(mindspace_root_id, expires_at);
 
-create table if not exists workspace_events (
+create table if not exists mindspace_events (
   id uuid primary key default gen_random_uuid(),
-  workspace_root_id uuid not null references workspace_roots(id),
+  mindspace_root_id uuid not null references mindspace_roots(id),
   event_type text not null,
   actor_user_id uuid references users(id),
   payload_json jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()
 );
 
-create table if not exists workspace_provisioning_jobs (
+create table if not exists mindspace_provisioning_jobs (
   id uuid primary key default gen_random_uuid(),
-  workspace_root_id uuid not null references workspace_roots(id),
+  mindspace_root_id uuid not null references mindspace_roots(id),
   requested_by uuid references users(id),
   status text not null,
   error_message text,

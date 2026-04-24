@@ -1,6 +1,6 @@
 import { loadProjectContext } from '../../services/project-context';
-import type { WorkspaceFactory } from '../../platform-deps';
-import { resolveWorkspaceForProject } from '../../workspace/resolver';
+import type { MindspaceFactory } from '../../platform-deps';
+import { resolveMindspaceForProject } from '../../mindspace/resolver';
 import { buildExecutionContext } from './build-execution-context';
 
 type ProjectAgentResponse = {
@@ -19,7 +19,7 @@ type ExecuteProjectAgentDeps = {
   mastra: {
     getAgent(name: 'projectAgent'): ProjectAgentLike;
   };
-  workspaceFactory: WorkspaceFactory;
+  mindspaceFactory: MindspaceFactory;
 };
 
 export async function executeProjectAgent(input: {
@@ -31,13 +31,13 @@ export async function executeProjectAgent(input: {
     firebaseUid: input.firebaseUid,
     projectId: input.projectId,
   });
-  const resolvedWorkspace = await resolveWorkspaceForProject(input.projectId, {
-    workspaceFactory: deps.workspaceFactory,
+  const resolvedWorkspace = await resolveMindspaceForProject(input.projectId, {
+    mindspaceFactory: deps.mindspaceFactory,
   });
   const threadId = projectContext.projectId;
   const execution = buildExecutionContext({
     projectContext,
-    workspaceRootPath: resolvedWorkspace.root.root_path,
+    mindspaceRootPath: resolvedWorkspace.root.root_path,
     workspace: resolvedWorkspace.workspace,
     resourceId: projectContext.resourceId,
     threadId,
@@ -52,7 +52,7 @@ export async function executeProjectAgent(input: {
 
   return {
     resourceId: projectContext.resourceId,
-    workspaceRootPath: execution.workspaceRootPath,
+    mindspaceRootPath: execution.mindspaceRootPath,
     threadId,
     runId: output.runId,
     modelId: output.response?.modelId,

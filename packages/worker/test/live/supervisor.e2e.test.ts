@@ -1,4 +1,4 @@
-// ABOUTME: E2E coverage for the project-scoped workspace supervisor route.
+// ABOUTME: E2E coverage for the project-scoped mindspace supervisor route.
 // ABOUTME: Verifies bootstrap + authenticated Tier B supervisor execution through Wrangler.
 
 import { afterAll, describe, expect, it } from 'vitest';
@@ -19,7 +19,7 @@ afterAll(async () => {
 });
 
 describe.skipIf(!shouldRun)('POST /api/projects/:projectId/supervise', { timeout: 180_000 }, () => {
-  it('runs the workspace supervisor after project bootstrap', async () => {
+  it('runs the mindspace supervisor after project bootstrap', async () => {
     const user = await createTestUser();
     createdUsers.push(user);
 

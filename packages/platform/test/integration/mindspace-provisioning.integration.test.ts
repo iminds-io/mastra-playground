@@ -5,19 +5,19 @@ import { pool } from '../../src/db/client';
 import { createOrganization } from '../../src/db/repositories/organizations';
 import { createProject } from '../../src/db/repositories/projects';
 import { upsertUser } from '../../src/db/repositories/users';
-import { provisionWorkspaceForProject } from '../../src/workspace/provisioning';
+import { provisionMindspaceForProject } from '../../src/mindspace/provisioning';
 
-describe('provisionWorkspaceForProject', () => {
+describe('provisionMindspaceForProject', () => {
   beforeEach(async () => {
     await pool.query(`
       truncate table
         channel_threads,
         project_channels,
-        workspace_provisioning_jobs,
-        workspace_events,
-        workspace_locks,
-        workspace_bindings,
-        workspace_roots,
+        mindspace_provisioning_jobs,
+        mindspace_events,
+        mindspace_locks,
+        mindspace_bindings,
+        mindspace_roots,
         organization_memberships,
         projects,
         users,
@@ -25,7 +25,7 @@ describe('provisionWorkspaceForProject', () => {
       restart identity cascade
     `);
 
-    await rm('/Users/pureicis/dev/mastra-playground/hono-workspace/var/workspaces', {
+    await rm('/Users/pureicis/dev/mastra-playground/hono-mindspace/var/workspaces', {
       recursive: true,
       force: true,
     });
@@ -47,19 +47,19 @@ describe('provisionWorkspaceForProject', () => {
       slug: 'demo-project',
     });
 
-    const result = await provisionWorkspaceForProject({
+    const result = await provisionMindspaceForProject({
       organizationId: organization.id,
       projectId: project.id,
       requestedBy: user.id,
       activeAgentRef: 'default',
       activeAgentVersion: 'v1',
-      workspaceRoot: '/Users/pureicis/dev/mastra-playground/hono-workspace/var/workspaces',
+      mindspaceRoot: '/Users/pureicis/dev/mastra-playground/hono-mindspace/var/workspaces',
     });
 
     expect(result.root.status).toBe('ready');
     expect(result.binding.active_agent_ref).toBe('default');
     expect(result.directories).toEqual(
-      expect.arrayContaining(['repo', 'docs', 'output', 'tmp', '.workspace-meta']),
+      expect.arrayContaining(['repo', 'docs', 'output', 'tmp', '.mindspace-meta']),
     );
   });
 });

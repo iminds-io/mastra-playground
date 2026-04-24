@@ -4,9 +4,9 @@
 import type { Mastra } from '@mastra/core';
 import type { Workspace } from '@mastra/core/workspace';
 
-export type WorkspaceFactory = (basePath: string) => Promise<Workspace>;
+export type MindspaceFactory = (basePath: string) => Promise<Workspace>;
 
 export type PlatformDeps = {
   mastra: Mastra;
-  workspaceFactory: WorkspaceFactory;
+  mindspaceFactory: MindspaceFactory;
 };

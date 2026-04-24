@@ -22,7 +22,7 @@ describe('authenticated routes', () => {
       },
       executeProjectAgent: async () => ({
         resourceId: 'project:project-1',
-        workspaceRootPath: '/tmp/project-1',
+        mindspaceRootPath: '/tmp/project-1',
         threadId: 'project-1',
         runId: 'run-123',
         modelId: 'openai/gpt-4.1-mini',
@@ -57,8 +57,8 @@ describe('authenticated routes', () => {
           {
             id: 'project-1',
             organizationId: 'org-1',
-            name: 'Alpha Workspace',
-            slug: 'alpha-workspace',
+            name: 'Alpha Mindspace',
+            slug: 'alpha-mindspace',
             status: 'active',
           },
         ],
@@ -77,8 +77,8 @@ describe('authenticated routes', () => {
         {
           id: 'project-1',
           organizationId: 'org-1',
-          name: 'Alpha Workspace',
-          slug: 'alpha-workspace',
+          name: 'Alpha Mindspace',
+          slug: 'alpha-mindspace',
           status: 'active',
         },
       ],
@@ -94,7 +94,7 @@ describe('authenticated routes', () => {
       },
       executeProjectAgent: async ({ projectId, message }) => ({
         resourceId: `project:${projectId}`,
-        workspaceRootPath: `/tmp/${projectId}`,
+        mindspaceRootPath: `/tmp/${projectId}`,
         threadId: projectId,
         runId: 'run-123',
         modelId: 'openai/gpt-4.1-mini',
@@ -114,7 +114,7 @@ describe('authenticated routes', () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       resourceId: 'project:project-1',
-      workspaceRootPath: '/tmp/project-1',
+      mindspaceRootPath: '/tmp/project-1',
       threadId: 'project-1',
       runId: 'run-123',
       modelId: 'openai/gpt-4.1-mini',
@@ -160,14 +160,14 @@ describe('authenticated routes', () => {
     });
   });
 
-  it('executes the workspace supervisor wrapper for authenticated project supervision', async () => {
+  it('executes the mindspace supervisor wrapper for authenticated project supervision', async () => {
     const app = await createApp({
       tokenVerifier: {
         async verifyIdToken() {
           return verifiedPrincipal;
         },
       },
-      runWorkspaceSupervisor: async ({ projectId, prompt, paths }) => ({
+      runMindspaceSupervisor: async ({ projectId, prompt, paths }) => ({
         projectId,
         text: `supervised:${prompt}:${paths?.join(',') ?? ''}`,
         runId: 'run-supervisor',
@@ -190,6 +190,227 @@ describe('authenticated routes', () => {
       text: 'supervised:review:README.md',
       runId: 'run-supervisor',
       modelId: 'openai/gpt-4.1-mini',
+    });
+  });
+
+  it('lists mindspace-scoped Mastra agents for authenticated project members', async () => {
+    const app = await createApp({
+      tokenVerifier: {
+        async verifyIdToken() {
+          return verifiedPrincipal;
+        },
+      },
+      listWorkspaceMastraAgents: async ({ projectId }) => ({
+        projectId,
+        agents: [{ id: 'summarizer', capability: 'read', operations: ['generate', 'stream'] }],
+      }),
+    });
+
+    const response = await app.request('/api/projects/project-1/mastra/agents', {
+      headers: {
+        authorization: 'Bearer demo-token',
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      projectId: 'project-1',
+      agents: [{ id: 'summarizer', capability: 'read', operations: ['generate', 'stream'] }],
+    });
+  });
+
+  it('generates through mindspace-scoped Mastra agent route without forwarding trusted body context', async () => {
+    let captured: unknown;
+    const app = await createApp({
+      tokenVerifier: {
+        async verifyIdToken() {
+          return verifiedPrincipal;
+        },
+      },
+      generateWorkspaceMastraAgent: async (input) => {
+        captured = input;
+        return {
+          projectId: input.projectId,
+          agentId: input.agentId,
+          threadId: input.threadId ?? 'generated-thread',
+          resourceId: 'server-resource',
+          text: 'ok',
+        };
+      },
+    });
+
+    const response = await app.request('/api/projects/project-1/mastra/agents/summarizer/generate', {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer demo-token',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        messages: 'hello',
+        threadId: 'client-thread',
+        projectId: 'evil-project',
+        role: 'owner',
+        resourceId: 'evil-resource',
+        requestContext: { workspace: 'evil' },
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(captured).toEqual({
+      firebaseUid: verifiedPrincipal.uid,
+      projectId: 'project-1',
+      agentId: 'summarizer',
+      messages: 'hello',
+      threadId: 'client-thread',
+    });
+    expect(await response.json()).toEqual({
+      projectId: 'project-1',
+      agentId: 'summarizer',
+      threadId: 'client-thread',
+      resourceId: 'server-resource',
+      text: 'ok',
+    });
+  });
+
+  it('streams through mindspace-scoped Mastra agent route', async () => {
+    const app = await createApp({
+      tokenVerifier: {
+        async verifyIdToken() {
+          return verifiedPrincipal;
+        },
+      },
+      streamWorkspaceMastraAgent: async function* ({ projectId, agentId }) {
+        yield { event: 'ack', data: { projectId, agentId, threadId: 't-1', resourceId: 'r-1' } };
+        yield { event: 'token', data: { text: 'ok' } };
+        yield { event: 'done', data: { projectId, agentId, threadId: 't-1', text: 'ok' } };
+      },
+    });
+
+    const response = await app.request('/api/projects/project-1/mastra/agents/summarizer/stream', {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer demo-token',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ messages: 'hello' }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('text/event-stream');
+    const text = await response.text();
+    expect(text).toContain('event: ack');
+    expect(text).toContain('event: token');
+    expect(text).toContain('event: done');
+  });
+
+  it('lists mindspace-scoped Mastra workflows for authenticated project members', async () => {
+    const app = await createApp({
+      tokenVerifier: {
+        async verifyIdToken() {
+          return verifiedPrincipal;
+        },
+      },
+      listWorkspaceMastraWorkflows: async ({ projectId }) => ({
+        projectId,
+        workflows: [{ id: 'ingestPipeline', capability: 'read', operations: ['create-run', 'start'] }],
+      }),
+    });
+
+    const response = await app.request('/api/projects/project-1/mastra/workflows', {
+      headers: {
+        authorization: 'Bearer demo-token',
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      projectId: 'project-1',
+      workflows: [{ id: 'ingestPipeline', capability: 'read', operations: ['create-run', 'start'] }],
+    });
+  });
+
+  it('creates mindspace-scoped Mastra workflow runs', async () => {
+    const app = await createApp({
+      tokenVerifier: {
+        async verifyIdToken() {
+          return verifiedPrincipal;
+        },
+      },
+      createWorkspaceMastraWorkflowRun: async ({ projectId, workflowId }) => ({
+        projectId,
+        workflowId,
+        runId: 'run-workflow',
+      }),
+    });
+
+    const response = await app.request('/api/projects/project-1/mastra/workflows/ingestPipeline/create-run', {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer demo-token',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({}),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      projectId: 'project-1',
+      workflowId: 'ingestPipeline',
+      runId: 'run-workflow',
+    });
+  });
+
+  it('starts mindspace-scoped Mastra workflows without forwarding trusted body context', async () => {
+    let captured: unknown;
+    const app = await createApp({
+      tokenVerifier: {
+        async verifyIdToken() {
+          return verifiedPrincipal;
+        },
+      },
+      startWorkspaceMastraWorkflow: async (input) => {
+        captured = input;
+        return {
+          projectId: input.projectId,
+          workflowId: input.workflowId,
+          runId: input.runId ?? 'run-created',
+          status: 'success',
+          result: { summary: '', filesCount: 0 },
+        };
+      },
+    });
+
+    const response = await app.request('/api/projects/project-1/mastra/workflows/ingestPipeline/start', {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer demo-token',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        runId: 'run-client',
+        inputData: { rootPath: '/' },
+        threadId: 'thread-client',
+        projectId: 'evil-project',
+        role: 'owner',
+        requestContext: { workspace: 'evil' },
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(captured).toEqual({
+      firebaseUid: verifiedPrincipal.uid,
+      projectId: 'project-1',
+      workflowId: 'ingestPipeline',
+      runId: 'run-client',
+      threadId: 'thread-client',
+      inputData: { rootPath: '/' },
+    });
+    expect(await response.json()).toEqual({
+      projectId: 'project-1',
+      workflowId: 'ingestPipeline',
+      runId: 'run-client',
+      status: 'success',
+      result: { summary: '', filesCount: 0 },
     });
   });
 

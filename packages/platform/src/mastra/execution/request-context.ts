@@ -1,4 +1,4 @@
-// ABOUTME: Type contract for the RequestContext that flows through every workspace-aware agent.
+// ABOUTME: Type contract for the RequestContext that flows through every mindspace-aware agent.
 // ABOUTME: Composed from three logical groups — caller identity, project domain, Mastra framework keys.
 
 import type { Workspace } from '@mastra/core/workspace';

@@ -14,4 +14,15 @@ describe('root scripts', () => {
 
     expect(packageJson.scripts?.['dev:full']).toBeDefined();
   });
+
+  it('targets the mastra-mindspace package scope in root scripts', () => {
+    const packageJson = JSON.parse(readFileSync(resolve(repoRoot, 'package.json'), 'utf8')) as {
+      scripts?: Record<string, string>;
+    };
+
+    expect(packageJson.scripts?.dev).toContain('@mastra-mindspace/app');
+    expect(packageJson.scripts?.['dev:web']).toContain('@mastra-mindspace/web');
+    expect(packageJson.scripts?.['test:e2e']).toContain('@mastra-mindspace/worker');
+    expect(packageJson.scripts?.['test:smoke']).toContain('@mastra-mindspace/worker');
+  });
 });

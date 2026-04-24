@@ -22,15 +22,15 @@ const api = vi.hoisted(() => ({
       {
         id: 'project-123',
         organizationId: 'org-1',
-        name: 'Alpha Workspace',
-        slug: 'alpha-workspace',
+        name: 'Alpha Mindspace',
+        slug: 'alpha-mindspace',
         status: 'active',
       },
       {
         id: 'project-456',
         organizationId: 'org-1',
-        name: 'Beta Workspace',
-        slug: 'beta-workspace',
+        name: 'Beta Mindspace',
+        slug: 'beta-mindspace',
         status: 'active',
       },
     ],
@@ -38,7 +38,7 @@ const api = vi.hoisted(() => ({
   bootstrapProject: vi.fn(async (_user: unknown, name: string) => ({
     projectId: 'project-789',
     organizationId: 'org-123',
-    workspaceRootPath: '/tmp/project-789',
+    mindspaceRootPath: '/tmp/project-789',
     binding: {
       activeAgentRef: 'default',
       activeAgentVersion: 'v1',
@@ -54,7 +54,7 @@ const api = vi.hoisted(() => ({
   })),
   runAdminTest: vi.fn(async (_user: unknown, projectId: string, message: string) => ({
     resourceId: `project:${projectId}`,
-    workspaceRootPath: `/tmp/${projectId}`,
+    mindspaceRootPath: `/tmp/${projectId}`,
     threadId: projectId,
     runId: 'run-123',
     modelId: 'openai/gpt-4.1-mini',
@@ -91,7 +91,7 @@ const api = vi.hoisted(() => ({
       {
         threadId: 'thread-1',
         rootMessageId: 'message-1',
-        rootMessageText: 'Ship the workspace shell this sprint.',
+        rootMessageText: 'Ship the mindspace shell this sprint.',
         rootMessageRole: 'user',
         replyCount: 2,
         lastMessageAt: '2026-04-09T01:00:00.000Z',
@@ -128,7 +128,7 @@ const api = vi.hoisted(() => ({
       {
         id: 'message-1',
         role: 'user',
-        text: 'Ship the workspace shell this sprint.',
+        text: 'Ship the mindspace shell this sprint.',
         createdAt: '2026-04-09T00:00:00.000Z',
       },
       {
@@ -224,13 +224,13 @@ describe('App', () => {
       expect(api.bootstrapProject).toHaveBeenCalled();
     });
 
-    fireEvent.click(screen.getByRole('button', { name: /open chat workspace/i }));
+    fireEvent.click(screen.getByRole('button', { name: /open chat mindspace/i }));
 
     await waitFor(() => {
       expect(api.listAccessibleProjects).toHaveBeenCalledWith(authState.user);
     });
 
-    expect(await screen.findByRole('button', { name: /alpha workspace/i })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: /alpha mindspace/i })).toBeTruthy();
     expect(await screen.findByRole('button', { name: /demo project/i })).toBeTruthy();
   });
 
@@ -246,11 +246,11 @@ describe('App', () => {
     });
 
     expect(
-      screen.getByRole('button', { name: /open thread for ship the workspace shell this sprint\./i }),
+      screen.getByRole('button', { name: /open thread for ship the mindspace shell this sprint\./i }),
     ).toBeTruthy();
     expect(screen.getByText(/2 replies/i)).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: /open thread for ship the workspace shell this sprint\./i }));
+    fireEvent.click(screen.getByRole('button', { name: /open thread for ship the mindspace shell this sprint\./i }));
 
     await waitFor(() => {
       expect(api.getChannelThread).toHaveBeenCalledWith(
@@ -270,7 +270,7 @@ describe('App', () => {
     render(<App />);
 
     await screen.findByRole('button', {
-      name: /open thread for ship the workspace shell this sprint\./i,
+      name: /open thread for ship the mindspace shell this sprint\./i,
     });
 
     fireEvent.change(screen.getByLabelText(/start a post/i), {

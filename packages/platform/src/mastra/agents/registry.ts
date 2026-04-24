@@ -5,8 +5,8 @@ import type { WorkflowRegistry } from '../workflows/registry';
 import { createProjectAgent } from './project-agent';
 import type { ProjectAgentConfig } from './project-agent';
 import { createSummarizerAgent } from './summarizer';
-import { createWorkspaceReviewerAgent } from './workspace-reviewer';
-import { createWorkspaceSupervisorAgent } from './workspace-supervisor';
+import { createMindspaceReviewerAgent } from './mindspace-reviewer';
+import { createMindspaceSupervisorAgent } from './mindspace-supervisor';
 
 export type AgentRegistryDeps = {
   workflows: WorkflowRegistry;
@@ -18,12 +18,12 @@ export function createAgentRegistry(
 ) {
   const projectAgent = createProjectAgent(config);
   const summarizer = createSummarizerAgent(config);
-  const workspaceReviewer = createWorkspaceReviewerAgent(config);
-  const workspaceSupervisor = createWorkspaceSupervisorAgent(
+  const mindspaceReviewer = createMindspaceReviewerAgent(config);
+  const mindspaceSupervisor = createMindspaceSupervisorAgent(
     {
       agents: {
         summarizer,
-        workspaceReviewer,
+        mindspaceReviewer,
       },
       workflows: {
         ingestPipeline: deps.workflows.ingestPipeline,
@@ -35,8 +35,8 @@ export function createAgentRegistry(
   return {
     projectAgent,
     summarizer,
-    workspaceReviewer,
-    'workspace-supervisor': workspaceSupervisor,
+    mindspaceReviewer,
+    'mindspace-supervisor': mindspaceSupervisor,
   };
 }
 

@@ -3,7 +3,7 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { pool } from '@hono-workspace/platform/node';
+import { pool } from '@mastra-mindspace/platform/node';
 
 import { createApp } from '../../src/server/factory';
 

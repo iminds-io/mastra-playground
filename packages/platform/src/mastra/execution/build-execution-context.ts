@@ -9,7 +9,7 @@ import type { ProjectAgentRequestContext } from './request-context';
 
 export type ExecutionContextInput = {
   projectContext: ProjectContext;
-  workspaceRootPath: string;
+  mindspaceRootPath: string;
   workspace: Workspace;
   resourceId: string;
   threadId: string;
@@ -21,7 +21,7 @@ export type ExecutionContext = {
   requestContext: RequestContext<ProjectAgentRequestContext>;
   resourceId: string;
   threadId: string;
-  workspaceRootPath: string;
+  mindspaceRootPath: string;
 };
 
 function requireNonEmpty(label: string, value: unknown): asserts value is string {
@@ -49,7 +49,7 @@ export function buildExecutionContext(input: ExecutionContextInput): ExecutionCo
   requireNonEmpty('projectContext.projectId', input.projectContext?.projectId);
   requireNonEmpty('projectContext.role', input.projectContext?.role);
   requireNonEmpty('projectContext.resourceId', input.projectContext?.resourceId);
-  requireNonEmpty('workspaceRootPath', input.workspaceRootPath);
+  requireNonEmpty('mindspaceRootPath', input.mindspaceRootPath);
   requireNonEmpty('resourceId', input.resourceId);
   requireNonEmpty('threadId', input.threadId);
   requireWorkspace(input.workspace);
@@ -73,6 +73,6 @@ export function buildExecutionContext(input: ExecutionContextInput): ExecutionCo
     requestContext,
     resourceId: input.resourceId,
     threadId: input.threadId,
-    workspaceRootPath: input.workspaceRootPath,
+    mindspaceRootPath: input.mindspaceRootPath,
   };
 }

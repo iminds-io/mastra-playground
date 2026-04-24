@@ -120,11 +120,11 @@ describe('agent version targeting via query params', () => {
     expect(capturedVersion).toBeUndefined();
   });
 
-  it('passes ?versionId= through to the workspace supervisor service', async () => {
+  it('passes ?versionId= through to the mindspace supervisor service', async () => {
     let capturedVersion: unknown = 'uncalled';
     const app = await createApp({
       tokenVerifier: tokenVerifier(),
-      runWorkspaceSupervisor: async (input, deps) => {
+      runMindspaceSupervisor: async (input, deps) => {
         capturedVersion = deps?.version;
         return {
           projectId: input.projectId,
@@ -149,11 +149,11 @@ describe('agent version targeting via query params', () => {
     expect(capturedVersion).toEqual({ versionId: 'supervisor-v1' });
   });
 
-  it('passes ?status=draft through to the workspace supervisor service', async () => {
+  it('passes ?status=draft through to the mindspace supervisor service', async () => {
     let capturedVersion: unknown = 'uncalled';
     const app = await createApp({
       tokenVerifier: tokenVerifier(),
-      runWorkspaceSupervisor: async (input, deps) => {
+      runMindspaceSupervisor: async (input, deps) => {
         capturedVersion = deps?.version;
         return {
           projectId: input.projectId,
@@ -182,7 +182,7 @@ describe('agent version targeting via query params', () => {
     let capturedVersion: unknown = 'sentinel';
     const app = await createApp({
       tokenVerifier: tokenVerifier(),
-      runWorkspaceSupervisor: async (input, deps) => {
+      runMindspaceSupervisor: async (input, deps) => {
         capturedVersion = deps?.version;
         return {
           projectId: input.projectId,
@@ -205,5 +205,63 @@ describe('agent version targeting via query params', () => {
 
     expect(response.status).toBe(200);
     expect(capturedVersion).toBeUndefined();
+  });
+
+  it('passes ?versionId through to mindspace-scoped agent generate', async () => {
+    let capturedVersion: unknown = 'uncalled';
+    const app = await createApp({
+      tokenVerifier: tokenVerifier(),
+      generateWorkspaceMastraAgent: async (input, deps) => {
+        capturedVersion = deps?.version;
+        return {
+          projectId: input.projectId,
+          agentId: input.agentId,
+          threadId: 'thread-1',
+          resourceId: 'resource-1',
+          text: 'stubbed gateway agent',
+        };
+      },
+    });
+
+    const response = await app.request(
+      '/api/projects/project-1/mastra/agents/summarizer/generate?versionId=agent-v1',
+      {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer demo-token',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ messages: 'hello' }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(capturedVersion).toEqual({ versionId: 'agent-v1' });
+  });
+
+  it('passes ?status=draft through to mindspace-scoped agent stream', async () => {
+    let capturedVersion: unknown = 'uncalled';
+    const app = await createApp({
+      tokenVerifier: tokenVerifier(),
+      streamWorkspaceMastraAgent: async function* (_input, deps) {
+        capturedVersion = deps?.version;
+        yield { event: 'done', data: { text: 'stubbed' } };
+      },
+    });
+
+    const response = await app.request(
+      '/api/projects/project-1/mastra/agents/summarizer/stream?status=draft',
+      {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer demo-token',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ messages: 'hello' }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(capturedVersion).toEqual({ status: 'draft' });
   });
 });

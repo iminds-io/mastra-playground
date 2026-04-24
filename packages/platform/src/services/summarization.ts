@@ -4,7 +4,7 @@
 import { buildExecutionContext } from '../mastra/execution/build-execution-context';
 import { getAgentWithVersion, type AgentVersionOpts } from '../mastra/version';
 import type { PlatformDeps } from '../platform-deps';
-import { resolveWorkspaceForProject } from '../workspace/resolver';
+import { resolveMindspaceForProject } from '../mindspace/resolver';
 import { AccessDeniedError } from './access-control';
 import { loadProjectContext } from './project-context';
 
@@ -33,7 +33,7 @@ function deriveThreadId() {
 
 function renderPrompt(input: SummarizeInput): string {
   const lines = [
-    'Summarize the following workspace documents:',
+    'Summarize the following mindspace documents:',
     ...input.paths.map((path) => `- ${path}`),
   ];
 
@@ -56,12 +56,12 @@ export async function summarizeProjectDocsForPrincipal(
     firebaseUid: input.firebaseUid,
     projectId: input.projectId,
   });
-  const resolved = await resolveWorkspaceForProject(input.projectId, {
-    workspaceFactory: deps.workspaceFactory,
+  const resolved = await resolveMindspaceForProject(input.projectId, {
+    mindspaceFactory: deps.mindspaceFactory,
   });
   const execution = buildExecutionContext({
     projectContext,
-    workspaceRootPath: resolved.root.root_path,
+    mindspaceRootPath: resolved.root.root_path,
     workspace: resolved.workspace,
     resourceId: deriveResourceId(input.projectId),
     threadId: deriveThreadId(),

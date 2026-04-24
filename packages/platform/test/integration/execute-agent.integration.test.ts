@@ -9,7 +9,7 @@ import { createOrganization } from '../../src/db/repositories/organizations';
 import { createProject } from '../../src/db/repositories/projects';
 import { upsertUser } from '../../src/db/repositories/users';
 import { executeProjectAgent } from '../../src/mastra/execution/execute-agent';
-import { provisionWorkspaceForProject } from '../../src/workspace/provisioning';
+import { provisionMindspaceForProject } from '../../src/mindspace/provisioning';
 
 describe('executeProjectAgent', () => {
   beforeEach(async () => {
@@ -17,11 +17,11 @@ describe('executeProjectAgent', () => {
       truncate table
         channel_threads,
         project_channels,
-        workspace_provisioning_jobs,
-        workspace_events,
-        workspace_locks,
-        workspace_bindings,
-        workspace_roots,
+        mindspace_provisioning_jobs,
+        mindspace_events,
+        mindspace_locks,
+        mindspace_bindings,
+        mindspace_roots,
         organization_memberships,
         projects,
         users,
@@ -29,7 +29,7 @@ describe('executeProjectAgent', () => {
       restart identity cascade
     `);
 
-    await rm('/Users/pureicis/dev/mastra-playground/hono-workspace/var/workspaces', {
+    await rm('/Users/pureicis/dev/mastra-playground/hono-mindspace/var/workspaces', {
       recursive: true,
       force: true,
     });
@@ -57,17 +57,17 @@ describe('executeProjectAgent', () => {
       role: 'owner',
     });
 
-    await provisionWorkspaceForProject({
+    await provisionMindspaceForProject({
       organizationId: organization.id,
       projectId: project.id,
       requestedBy: user.id,
       activeAgentRef: 'default',
       activeAgentVersion: 'v1',
-      workspaceRoot: '/Users/pureicis/dev/mastra-playground/hono-workspace/var/workspaces',
+      mindspaceRoot: '/Users/pureicis/dev/mastra-playground/hono-mindspace/var/workspaces',
     });
 
     const workspace = { filesystem: {} };
-    const workspaceFactory = vi.fn(async () => workspace as never);
+    const mindspaceFactory = vi.fn(async () => workspace as never);
     const result = await executeProjectAgent(
       {
         firebaseUid: 'firebase-user-1',
@@ -103,13 +103,13 @@ describe('executeProjectAgent', () => {
             };
           },
         },
-        workspaceFactory,
+        mindspaceFactory,
       } as never,
     );
 
-    expect(workspaceFactory).toHaveBeenCalledTimes(1);
+    expect(mindspaceFactory).toHaveBeenCalledTimes(1);
     expect(result.resourceId).toBe(`project:${project.id}`);
-    expect(result.workspaceRootPath).toContain(`project_${project.id}`);
+    expect(result.mindspaceRootPath).toContain(`project_${project.id}`);
     expect(result.threadId).toBe(project.id);
     expect(result.runId).toBe('run-123');
     expect(result.modelId).toBe('openai/gpt-4.1-mini');
@@ -123,11 +123,11 @@ describe('executeProjectAgent with real Mastra PG', () => {
       truncate table
         channel_threads,
         project_channels,
-        workspace_provisioning_jobs,
-        workspace_events,
-        workspace_locks,
-        workspace_bindings,
-        workspace_roots,
+        mindspace_provisioning_jobs,
+        mindspace_events,
+        mindspace_locks,
+        mindspace_bindings,
+        mindspace_roots,
         organization_memberships,
         projects,
         users,
@@ -157,7 +157,7 @@ describe('executeProjectAgent with real Mastra PG', () => {
           projectId: fixture.project.id,
           message: 'respond with the single word "ok" and nothing else',
         },
-        { mastra, workspaceFactory: fixture.workspaceFactory },
+        { mastra, mindspaceFactory: fixture.mindspaceFactory },
       );
 
       expect(typeof result.text).toBe('string');

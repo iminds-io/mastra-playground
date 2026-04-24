@@ -17,11 +17,11 @@ describe('agent version targeting — behavioral', { timeout: 120_000 }, () => {
         truncate table
           channel_threads,
           project_channels,
-          workspace_provisioning_jobs,
-          workspace_events,
-          workspace_locks,
-          workspace_bindings,
-          workspace_roots,
+          mindspace_provisioning_jobs,
+          mindspace_events,
+          mindspace_locks,
+          mindspace_bindings,
+          mindspace_roots,
           organization_memberships,
           projects,
           users,
@@ -80,7 +80,7 @@ describe('agent version targeting — behavioral', { timeout: 120_000 }, () => {
             paths: ['README.md'],
             question: 'Reply in one short sentence.',
           },
-          { mastra, workspaceFactory: fixture.workspaceFactory, version: { status: 'draft' } },
+          { mastra, mindspaceFactory: fixture.mindspaceFactory, version: { status: 'draft' } },
         );
         expect(typeof targeted.text).toBe('string');
         expect(targeted.text.length).toBeGreaterThan(0);
@@ -95,7 +95,7 @@ describe('agent version targeting — behavioral', { timeout: 120_000 }, () => {
             paths: ['README.md'],
             question: 'Reply in one short sentence.',
           },
-          { mastra, workspaceFactory: fixture.workspaceFactory },
+          { mastra, mindspaceFactory: fixture.mindspaceFactory },
         );
         expect(typeof baseline.text).toBe('string');
         expect(baseline.text.length).toBeGreaterThan(0);

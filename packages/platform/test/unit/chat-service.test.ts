@@ -70,7 +70,7 @@ describe('createChannelPostForPrincipal', () => {
         firebaseUid: 'firebase-user-1',
         projectId: 'project-1',
         channelId: 'channel-1',
-        message: 'Ship the workspace shell this sprint.',
+        message: 'Ship the mindspace shell this sprint.',
       },
       {
         mastra: {
@@ -83,7 +83,7 @@ describe('createChannelPostForPrincipal', () => {
             };
           },
         } as never,
-        workspaceFactory: vi.fn(async () => ({ filesystem: {} }) as never),
+        mindspaceFactory: vi.fn(async () => ({ filesystem: {} }) as never),
       },
     );
 

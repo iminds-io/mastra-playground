@@ -10,15 +10,15 @@ describe('parseEnv', () => {
   it('parses the expected environment shape', () => {
     expect(
       parseEnv({
-        DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/hono_workspace',
-        WORKSPACE_ROOT: '/tmp/hono-workspace',
+        DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/mastra_mindspace',
+        MINDSPACE_ROOT: '/tmp/mastra-mindspace',
         FIREBASE_PROJECT_ID: 'demo-project',
         FIREBASE_TOKEN: 'demo-token',
         PORT: '4001',
       }),
     ).toEqual({
-      databaseUrl: 'postgres://postgres:postgres@localhost:5432/hono_workspace',
-      workspaceRoot: '/tmp/hono-workspace',
+      databaseUrl: 'postgres://postgres:postgres@localhost:5432/mastra_mindspace',
+      mindspaceRoot: '/tmp/mastra-mindspace',
       firebaseProjectId: 'demo-project',
       firebaseApiKey: 'demo-token',
       port: 4001,

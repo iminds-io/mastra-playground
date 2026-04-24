@@ -35,11 +35,11 @@ describe('createMastra', () => {
 
     expect(tools).toBeDefined();
     expect(Object.keys(tools ?? {}).sort()).toEqual(['listDir', 'readFile', 'writeFile']);
-    expect(tools?.readFile?.id).toBe('workspace.readFile');
-    expect(tools?.writeFile?.id).toBe('workspace.writeFile');
+    expect(tools?.readFile?.id).toBe('mindspace.readFile');
+    expect(tools?.writeFile?.id).toBe('mindspace.writeFile');
   });
 
-  it('registers only read-only workspace tools on the summarizer', async () => {
+  it('registers only read-only mindspace tools on the summarizer', async () => {
     const mastra = createMastra('postgres://postgres:postgres@localhost:5432/hono_workspace');
     const tools = await resolveAgentTools(mastra.getAgent('summarizer') as never);
 
@@ -47,22 +47,22 @@ describe('createMastra', () => {
     expect(Object.keys(tools ?? {}).sort()).toEqual(['listDir', 'readFile']);
   });
 
-  it('registers workspaceReviewer with read-only tools', async () => {
+  it('registers mindspaceReviewer with read-only tools', async () => {
     const mastra = createMastra('postgres://postgres:postgres@localhost:5432/hono_workspace');
-    const reviewer = mastra.getAgent('workspaceReviewer');
+    const reviewer = mastra.getAgent('mindspaceReviewer');
     const tools = await resolveAgentTools(reviewer as never);
 
     expect(reviewer).toBeDefined();
     expect(Object.keys(tools ?? {}).sort()).toEqual(['listDir', 'readFile']);
   });
 
-  it('registers workspace-supervisor with specialist subagents and workflows', async () => {
+  it('registers mindspace-supervisor with specialist subagents and workflows', async () => {
     const mastra = createMastra('postgres://postgres:postgres@localhost:5432/hono_workspace');
-    const supervisor = mastra.getAgent('workspace-supervisor');
+    const supervisor = mastra.getAgent('mindspace-supervisor');
 
     expect(supervisor).toBeDefined();
     const subagents = await supervisor.listAgents();
-    expect(Object.keys(subagents)).toEqual(expect.arrayContaining(['summarizer', 'workspaceReviewer']));
+    expect(Object.keys(subagents)).toEqual(expect.arrayContaining(['summarizer', 'mindspaceReviewer']));
     expect(Object.keys(subagents)).not.toContain('projectAgent');
 
     const workflows = await supervisor.listWorkflows();

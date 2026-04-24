@@ -48,7 +48,7 @@ describe.skipIf(!shouldRun)('worker happy path (non-Mastra)', { timeout: 60_000 
       projectId: string;
       organizationId: string;
       defaultChannelId: string;
-      workspaceRootPath: string;
+      mindspaceRootPath: string;
     }>('/api/dev/bootstrap-project', {
       method: 'POST',
       token,
@@ -56,7 +56,7 @@ describe.skipIf(!shouldRun)('worker happy path (non-Mastra)', { timeout: 60_000 
     });
     expect(bootstrap.status).toBe(200);
     expect(bootstrap.body.projectId).toBeTruthy();
-    expect(bootstrap.body.workspaceRootPath).toBeTruthy();
+    expect(bootstrap.body.mindspaceRootPath).toBeTruthy();
     const { projectId, defaultChannelId } = bootstrap.body;
 
     const channels = await apiCall<{ channels: Array<{ id: string }> }>(

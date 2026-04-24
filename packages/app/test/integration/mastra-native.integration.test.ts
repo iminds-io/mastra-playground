@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { createMastra } from '@hono-workspace/platform';
+import { createMastra } from '@mastra-mindspace/platform';
 
 import { createApp } from '../../src/server/factory';
 
@@ -46,8 +46,8 @@ describe('Mastra native route mount', () => {
     expect(Object.keys(body)).toEqual(expect.arrayContaining([
       'project-agent',
       'summarizer',
-      'workspace-reviewer',
-      'workspace-supervisor',
+      'mindspace-reviewer',
+      'mindspace-supervisor',
     ]));
   });
 });

@@ -17,7 +17,7 @@ describe('Mastra editor — stored-agent lifecycle (behavioral)', { timeout: 60_
     if (!editor) return;
 
     // 1. Create an initial stored override. The editor requires `model` and `name`
-    // alongside instructions; model/workspace/memory are ignored at hydration time
+    // alongside instructions; model/mindspace/memory are ignored at hydration time
     // so they're just placeholders per @mastra/editor's own docs.
     const createResult = await editor.agent.create({
       id: AGENT_ID,

@@ -7,8 +7,8 @@ import { AccessDeniedError } from './access-control';
 import { createProjectChannel, getProjectChannelById, listProjectChannels } from '../db/repositories/project-channels';
 import { getChannelThreadById, listChannelThreads, createChannelThread, updateChannelThreadMetadata } from '../db/repositories/channel-threads';
 import { loadProjectContext } from './project-context';
-import type { PlatformDeps, WorkspaceFactory } from '../platform-deps';
-import { resolveWorkspaceForProject } from '../workspace/resolver';
+import type { PlatformDeps, MindspaceFactory } from '../platform-deps';
+import { resolveMindspaceForProject } from '../mindspace/resolver';
 import { buildExecutionContext as buildSharedExecutionContext } from '../mastra/execution/build-execution-context';
 
 type ChatServiceDeps = PlatformDeps;
@@ -55,7 +55,7 @@ export type ChatFeedPost = {
 
 export type ChatReply = {
   resourceId: string;
-  workspaceRootPath: string;
+  mindspaceRootPath: string;
   threadId: string;
   runId?: string;
   modelId?: string;
@@ -209,14 +209,14 @@ async function buildExecutionContext(input: {
   projectContext: Awaited<ReturnType<typeof loadProjectContext>>;
   channelId: string;
   threadId: string;
-  workspaceFactory: WorkspaceFactory;
+  mindspaceFactory: MindspaceFactory;
 }) {
-  const resolvedWorkspace = await resolveWorkspaceForProject(input.projectId, {
-    workspaceFactory: input.workspaceFactory,
+  const resolvedWorkspace = await resolveMindspaceForProject(input.projectId, {
+    mindspaceFactory: input.mindspaceFactory,
   });
   return buildSharedExecutionContext({
     projectContext: input.projectContext,
-    workspaceRootPath: resolvedWorkspace.root.root_path,
+    mindspaceRootPath: resolvedWorkspace.root.root_path,
     workspace: resolvedWorkspace.workspace,
     resourceId: deriveChannelResourceId(input.channelId),
     threadId: input.threadId,
@@ -486,7 +486,7 @@ export async function sendChannelMessageForPrincipal(input: {
     projectContext,
     channelId: channel.id,
     threadId: thread.id,
-    workspaceFactory: deps.workspaceFactory,
+    mindspaceFactory: deps.mindspaceFactory,
   });
 
   const output = await deps.mastra.getAgent('projectAgent').generate(input.message, {
@@ -504,7 +504,7 @@ export async function sendChannelMessageForPrincipal(input: {
 
   return {
     resourceId: execution.resourceId,
-    workspaceRootPath: execution.workspaceRootPath,
+    mindspaceRootPath: execution.mindspaceRootPath,
     threadId: thread.id,
     text: output.text,
     ...(output.runId ? { runId: output.runId } : {}),
@@ -534,7 +534,7 @@ export async function* streamChannelReplyForPrincipal(input: {
     projectContext,
     channelId: channel.id,
     threadId: thread.id,
-    workspaceFactory: deps.workspaceFactory,
+    mindspaceFactory: deps.mindspaceFactory,
   });
   const memoryStore = await getMemoryStore(deps.mastra);
   const messageInput = input.message?.trim()
@@ -564,7 +564,7 @@ export async function* streamChannelReplyForPrincipal(input: {
     data: {
       threadId: thread.id,
       resourceId: execution.resourceId,
-      workspaceRootPath: execution.workspaceRootPath,
+      mindspaceRootPath: execution.mindspaceRootPath,
     },
   };
 

@@ -157,7 +157,7 @@ describe('chat routes', () => {
         rootMessage: {
           id: 'message-1',
           role: 'user',
-          text: 'Ship the new workspace shell.',
+          text: 'Ship the new mindspace shell.',
           createdAt: '2026-04-09T00:00:00.000Z',
         },
       }),
@@ -169,7 +169,7 @@ describe('chat routes', () => {
         authorization: 'Bearer demo-token',
         'content-type': 'application/json',
       },
-      body: JSON.stringify({ message: 'Ship the new workspace shell.' }),
+      body: JSON.stringify({ message: 'Ship the new mindspace shell.' }),
     });
 
     expect(response.status).toBe(200);
@@ -185,7 +185,7 @@ describe('chat routes', () => {
       rootMessage: {
         id: 'message-1',
         role: 'user',
-        text: 'Ship the new workspace shell.',
+        text: 'Ship the new mindspace shell.',
         createdAt: '2026-04-09T00:00:00.000Z',
       },
     });

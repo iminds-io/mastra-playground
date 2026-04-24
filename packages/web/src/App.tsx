@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 
-import { Badge, Button, Card, Input, cn, Textarea } from '@hono-workspace/ui';
+import { Badge, Button, Card, Input, cn, Textarea } from '@mastra-mindspace/ui';
 
 import {
   bootstrapProject,
@@ -96,7 +96,7 @@ export function App() {
   const [projectId, setProjectId] = useState('');
   const [adminMessage, setAdminMessage] = useState('hello');
   const [meResult, setMeResult] = useState('');
-  const [workspaceResult, setWorkspaceResult] = useState('');
+  const [mindspaceResult, setMindspaceResult] = useState('');
   const [adminResult, setAdminResult] = useState('');
   const [lastError, setLastError] = useState('');
   const [isLoading, setIsLoading] = useState<string | null>(null);
@@ -245,7 +245,7 @@ export function App() {
       const result = await bootstrapProject(user, projectName);
       const bootstrappedProject = result.project;
       setProjectId(result.projectId);
-      setWorkspaceResult(JSON.stringify(result, null, 2));
+      setMindspaceResult(JSON.stringify(result, null, 2));
       if (bootstrappedProject) {
         setProjects((current) => mergeProjects(current, [bootstrappedProject]));
       }
@@ -502,26 +502,26 @@ export function App() {
 
   if (route.name === 'chat') {
     return (
-      <main className="workspace-shell">
+      <main className="mindspace-shell">
         <aside className="sidebar">
           <div className="sidebar-brand">
-            <p className="eyebrow">Hono Workspace</p>
-            <h1>Workspaces</h1>
+            <p className="eyebrow">Mastra Mindspace</p>
+            <h1>Mindspaces</h1>
           </div>
 
-          <nav className="workspace-list" aria-label="Projects">
+          <nav className="mindspace-list" aria-label="Projects">
             {projects.map((project) => (
               <div key={project.id}>
                 <button
-                  className={project.id === route.projectId ? 'workspace-button workspace-button-active' : 'workspace-button'}
+                  className={project.id === route.projectId ? 'mindspace-button mindspace-button-active' : 'mindspace-button'}
                   onClick={() => navigate(`/chat/${project.id}`)}
                 >
-                  <span className="workspace-button-name">{project.name}</span>
-                  <span className="workspace-button-slug">{project.slug}</span>
+                  <span className="mindspace-button-name">{project.name}</span>
+                  <span className="mindspace-button-slug">{project.slug}</span>
                 </button>
 
                 {project.id === route.projectId && (
-                  <div className="workspace-channels">
+                  <div className="mindspace-channels">
                     <nav className="channel-list" aria-label="Channels">
                       {channels.map((channel) => (
                         <button
@@ -535,7 +535,7 @@ export function App() {
                       ))}
                     </nav>
 
-                    <div className="workspace-channels-actions">
+                    <div className="mindspace-channels-actions">
                       <Input
                         value={newChannelName}
                         onChange={(event) => setNewChannelName(event.target.value)}
@@ -684,7 +684,7 @@ export function App() {
   return (
     <main className="admin-shell">
       <section className="panel admin-panel">
-        <p className="eyebrow">Hono Workspace</p>
+        <p className="eyebrow">Mastra Mindspace</p>
         <h1>Admin Test Console</h1>
         <p className="lede">
           Authenticate with Firebase, provision a workspace, and jump into the Slack-shaped chat surface.
@@ -759,7 +759,7 @@ export function App() {
             }}
             disabled={!projectId}
           >
-            Open Chat Workspace
+            Open Chat Mindspace
           </Button>
         </div>
 
@@ -791,15 +791,15 @@ export function App() {
       <section className="panel panel-output">
         <article>
           <h2>Projects</h2>
-          <div className="workspace-list admin-project-list" aria-label="Projects">
+          <div className="mindspace-list admin-project-list" aria-label="Projects">
             {projects.map((project) => (
               <button
                 key={project.id}
-                className={project.id === projectId ? 'workspace-button workspace-button-active' : 'workspace-button'}
+                className={project.id === projectId ? 'mindspace-button mindspace-button-active' : 'mindspace-button'}
                 onClick={() => setProjectId(project.id)}
               >
-                <span className="workspace-button-name">{project.name}</span>
-                <span className="workspace-button-slug">{project.slug}</span>
+                <span className="mindspace-button-name">{project.name}</span>
+                <span className="mindspace-button-slug">{project.slug}</span>
               </button>
             ))}
           </div>
@@ -810,7 +810,7 @@ export function App() {
         </article>
         <article>
           <h2>Bootstrap response</h2>
-          <pre>{workspaceResult || 'No bootstrap request yet.'}</pre>
+          <pre>{mindspaceResult || 'No bootstrap request yet.'}</pre>
         </article>
         <article>
           <h2>Admin Test</h2>

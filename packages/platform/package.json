@@ -1,5 +1,5 @@
 {
-  "name": "@hono-workspace/platform",
+  "name": "@mastra-mindspace/platform",
   "private": true,
   "type": "module",
   "exports": {

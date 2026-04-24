@@ -42,7 +42,7 @@ export function createIngestPipelineWorkflow() {
       const resourceId = context.get('mastra__resourceId');
       const threadId = context.get('mastra__threadId');
       const output = await summarizer.generate(
-        `Summarize these workspace files:\n${inputData.files.map((file) => `- ${file}`).join('\n')}`,
+        `Summarize these mindspace files:\n${inputData.files.map((file) => `- ${file}`).join('\n')}`,
         {
           requestContext,
           memory: { resource: resourceId, thread: threadId },

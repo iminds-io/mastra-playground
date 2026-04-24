@@ -3,20 +3,20 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { pool } from '../../src/db/client';
 import { createOrganization } from '../../src/db/repositories/organizations';
 import { createProject } from '../../src/db/repositories/projects';
-import { createWorkspaceRoot, getActiveWorkspaceRootByProjectId } from '../../src/db/repositories/workspace-roots';
-import { reconcileWorkspaceForProject } from '../../src/workspace/reconciliation';
+import { createMindspaceRoot, getActiveMindspaceRootByProjectId } from '../../src/db/repositories/mindspace-roots';
+import { reconcileMindspaceForProject } from '../../src/mindspace/reconciliation';
 
-describe('reconcileWorkspaceForProject', () => {
+describe('reconcileMindspaceForProject', () => {
   beforeEach(async () => {
     await pool.query(`
       truncate table
         channel_threads,
         project_channels,
-        workspace_provisioning_jobs,
-        workspace_events,
-        workspace_locks,
-        workspace_bindings,
-        workspace_roots,
+        mindspace_provisioning_jobs,
+        mindspace_events,
+        mindspace_locks,
+        mindspace_bindings,
+        mindspace_roots,
         organization_memberships,
         projects,
         users,
@@ -25,8 +25,8 @@ describe('reconcileWorkspaceForProject', () => {
     `);
   });
 
-  it('marks the workspace root as error when the directory is missing', async () => {
-    const workspaceFactory = async () => ({
+  it('marks the mindspace root as error when the directory is missing', async () => {
+    const mindspaceFactory = async () => ({
       filesystem: {
         exists: async () => {
           throw new Error('Directory not found');
@@ -43,15 +43,15 @@ describe('reconcileWorkspaceForProject', () => {
       name: 'Demo Project',
       slug: 'demo-project',
     });
-    const root = await createWorkspaceRoot({
+    const root = await createMindspaceRoot({
       organizationId: organization.id,
       projectId: project.id,
-      rootPath: '/Users/pureicis/dev/mastra-playground/hono-workspace/var/workspaces/missing-root',
+      rootPath: '/Users/pureicis/dev/mastra-playground/hono-mindspace/var/workspaces/missing-root',
       status: 'ready',
     });
 
-    const result = await reconcileWorkspaceForProject(project.id, { workspaceFactory });
-    const updatedRoot = await getActiveWorkspaceRootByProjectId(project.id);
+    const result = await reconcileMindspaceForProject(project.id, { mindspaceFactory });
+    const updatedRoot = await getActiveMindspaceRootByProjectId(project.id);
 
     expect(result.status).toBe('error');
     expect(updatedRoot?.status).toBe('error');

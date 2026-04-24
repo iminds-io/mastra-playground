@@ -18,10 +18,16 @@ import {
   sendChannelMessageForPrincipal,
   streamChannelReplyForPrincipal,
   summarizeProjectDocsForPrincipal,
-  runWorkspaceSupervisorForPrincipal,
+  runMindspaceSupervisorForPrincipal,
+  listMindspaceMastraAgentsForPrincipal,
+  generateMindspaceMastraAgentForPrincipal,
+  streamMindspaceMastraAgentForPrincipal,
+  listMindspaceMastraWorkflowsForPrincipal,
+  createMindspaceMastraWorkflowRunForPrincipal,
+  startMindspaceMastraWorkflowForPrincipal,
   parseAgentVersionFromQuery,
-  type WorkspaceFactory,
-} from '@hono-workspace/platform';
+  type MindspaceFactory,
+} from '@mastra-mindspace/platform';
 
 import { createAuthMiddleware, type AppBindings } from '../middleware/auth';
 import { healthRoutes } from '../routes/health';
@@ -34,7 +40,7 @@ type ExecuteProjectAgent = (input: {
   message: string;
 }) => Promise<{
   resourceId: string;
-  workspaceRootPath: string;
+  mindspaceRootPath: string;
   threadId: string;
   runId?: string;
   modelId?: string;
@@ -46,10 +52,22 @@ type StreamEvent = {
   data: Record<string, unknown>;
 };
 
+type MindspaceMastraListItem = {
+  id: string;
+  capability: 'read' | 'write';
+  operations: string[];
+};
+
+type MindspaceMastraVersionDeps = {
+  version?:
+    | { versionId: string }
+    | { status: 'draft' | 'published' };
+};
+
 type AppFactoryParams = {
   databaseUrl?: string;
   mastra?: ReturnType<typeof createMastra>;
-  workspaceFactory?: WorkspaceFactory;
+  mindspaceFactory?: MindspaceFactory;
   /**
    * Comma-separated emails (or array) allowed to mutate /api/mastra/stored/*.
    * Falls back to process.env.ADMIN_EMAILS when omitted. Reads stay open to
@@ -76,7 +94,7 @@ type AppFactoryParams = {
   }) => Promise<{
     projectId: string;
     organizationId: string;
-    workspaceRootPath: string;
+    mindspaceRootPath: string;
     project?: {
       id: string;
       organizationId: string;
@@ -225,7 +243,7 @@ type AppFactoryParams = {
     message: string;
   }) => Promise<{
     resourceId: string;
-    workspaceRootPath: string;
+    mindspaceRootPath: string;
     threadId: string;
     runId?: string;
     modelId?: string;
@@ -257,7 +275,7 @@ type AppFactoryParams = {
     runId?: string;
     modelId?: string;
   }>;
-  runWorkspaceSupervisor?: (
+  runMindspaceSupervisor?: (
     input: {
       firebaseUid: string;
       projectId: string;
@@ -275,9 +293,68 @@ type AppFactoryParams = {
     runId?: string;
     modelId?: string;
   }>;
+  listWorkspaceMastraAgents?: (input: {
+    firebaseUid: string;
+    projectId: string;
+  }) => Promise<{
+    projectId: string;
+    agents: MindspaceMastraListItem[];
+  }>;
+  generateWorkspaceMastraAgent?: (
+    input: {
+      firebaseUid: string;
+      projectId: string;
+      agentId: string;
+      messages: string;
+      threadId?: string;
+    },
+    deps?: MindspaceMastraVersionDeps,
+  ) => Promise<{
+    projectId: string;
+    agentId: string;
+    threadId: string;
+    resourceId: string;
+    text: string;
+    runId?: string;
+    modelId?: string;
+  }>;
+  streamWorkspaceMastraAgent?: (
+    input: {
+      firebaseUid: string;
+      projectId: string;
+      agentId: string;
+      messages: string;
+      threadId?: string;
+    },
+    deps?: MindspaceMastraVersionDeps,
+  ) => AsyncIterable<StreamEvent> | Promise<AsyncIterable<StreamEvent>>;
+  listWorkspaceMastraWorkflows?: (input: {
+    firebaseUid: string;
+    projectId: string;
+  }) => Promise<{
+    projectId: string;
+    workflows: MindspaceMastraListItem[];
+  }>;
+  createWorkspaceMastraWorkflowRun?: (input: {
+    firebaseUid: string;
+    projectId: string;
+    workflowId: string;
+  }) => Promise<{
+    projectId: string;
+    workflowId: string;
+    runId: string;
+  }>;
+  startWorkspaceMastraWorkflow?: (input: {
+    firebaseUid: string;
+    projectId: string;
+    workflowId: string;
+    runId?: string;
+    inputData?: unknown;
+    threadId?: string;
+  }) => Promise<Record<string, unknown>>;
 };
 
-function createLocalWorkspaceFactory(): WorkspaceFactory {
+function createLocalMindspaceFactory(): MindspaceFactory {
   return async (basePath: string) => {
     const workspace = new Workspace({
       filesystem: new LocalFilesystem({
@@ -353,8 +430,8 @@ export async function createApp(params: AppFactoryParams = {}) {
   const auth = createAuthMiddleware({ tokenVerifier });
 
   const mastra = params.mastra ?? createMastra(process.env.DATABASE_URL ?? 'postgres://postgres:postgres@localhost:5432/hono_workspace');
-  const workspaceFactory = params.workspaceFactory ?? createLocalWorkspaceFactory();
-  const platformDeps = { mastra, workspaceFactory };
+  const mindspaceFactory = params.mindspaceFactory ?? createLocalMindspaceFactory();
+  const platformDeps = { mastra, mindspaceFactory };
 
   app.route('/', healthRoutes);
   app.get('/ready', (c) => c.json({ ok: true }));
@@ -393,7 +470,7 @@ export async function createApp(params: AppFactoryParams = {}) {
 
     return c.json({
       resourceId: result.resourceId,
-      workspaceRootPath: result.workspaceRootPath,
+      mindspaceRootPath: result.mindspaceRootPath,
       threadId: result.threadId,
       runId: result.runId,
       modelId: result.modelId,
@@ -435,12 +512,112 @@ export async function createApp(params: AppFactoryParams = {}) {
       ...(Array.isArray(body.paths) ? { paths: body.paths } : {}),
     };
     const depArg = version ? { version } : undefined;
-    const result = params.runWorkspaceSupervisor
-      ? await params.runWorkspaceSupervisor(supervisorInput, depArg)
-      : await runWorkspaceSupervisorForPrincipal(supervisorInput, {
+    const result = params.runMindspaceSupervisor
+      ? await params.runMindspaceSupervisor(supervisorInput, depArg)
+      : await runMindspaceSupervisorForPrincipal(supervisorInput, {
           ...platformDeps,
           ...(version ? { version } : {}),
         });
+
+    return c.json(result);
+  });
+  app.get('/api/projects/:projectId/mastra/agents', async (c) => {
+    const principal = c.get('principal');
+    const input = {
+      firebaseUid: principal.uid,
+      projectId: c.req.param('projectId'),
+    };
+    const result = params.listWorkspaceMastraAgents
+      ? await params.listWorkspaceMastraAgents(input)
+      : await listMindspaceMastraAgentsForPrincipal(input, platformDeps);
+
+    return c.json(result);
+  });
+  app.post('/api/projects/:projectId/mastra/agents/:agentId/generate', async (c) => {
+    const principal = c.get('principal');
+    const body = await c.req.json<{ messages?: string; threadId?: string }>();
+    const version = parseAgentVersionFromQuery({
+      get: (name: string) => c.req.query(name) ?? null,
+    });
+    const input = {
+      firebaseUid: principal.uid,
+      projectId: c.req.param('projectId'),
+      agentId: c.req.param('agentId'),
+      messages: body.messages ?? '',
+      ...(body.threadId ? { threadId: body.threadId } : {}),
+    };
+    const depArg = version ? { version } : undefined;
+    const result = params.generateWorkspaceMastraAgent
+      ? await params.generateWorkspaceMastraAgent(input, depArg)
+      : await generateMindspaceMastraAgentForPrincipal(input, {
+          ...platformDeps,
+          ...(version ? { version } : {}),
+        });
+
+    return c.json(result);
+  });
+  app.post('/api/projects/:projectId/mastra/agents/:agentId/stream', async (c) => {
+    const principal = c.get('principal');
+    const body = await c.req.json<{ messages?: string; threadId?: string }>();
+    const version = parseAgentVersionFromQuery({
+      get: (name: string) => c.req.query(name) ?? null,
+    });
+    const input = {
+      firebaseUid: principal.uid,
+      projectId: c.req.param('projectId'),
+      agentId: c.req.param('agentId'),
+      messages: body.messages ?? '',
+      ...(body.threadId ? { threadId: body.threadId } : {}),
+    };
+    const depArg = version ? { version } : undefined;
+    const stream = params.streamWorkspaceMastraAgent
+      ? await params.streamWorkspaceMastraAgent(input, depArg)
+      : streamMindspaceMastraAgentForPrincipal(input, {
+          ...platformDeps,
+          ...(version ? { version } : {}),
+        });
+
+    return createSseResponse(stream);
+  });
+  app.get('/api/projects/:projectId/mastra/workflows', async (c) => {
+    const principal = c.get('principal');
+    const input = {
+      firebaseUid: principal.uid,
+      projectId: c.req.param('projectId'),
+    };
+    const result = params.listWorkspaceMastraWorkflows
+      ? await params.listWorkspaceMastraWorkflows(input)
+      : await listMindspaceMastraWorkflowsForPrincipal(input, platformDeps);
+
+    return c.json(result);
+  });
+  app.post('/api/projects/:projectId/mastra/workflows/:workflowId/create-run', async (c) => {
+    const principal = c.get('principal');
+    const input = {
+      firebaseUid: principal.uid,
+      projectId: c.req.param('projectId'),
+      workflowId: c.req.param('workflowId'),
+    };
+    const result = params.createWorkspaceMastraWorkflowRun
+      ? await params.createWorkspaceMastraWorkflowRun(input)
+      : await createMindspaceMastraWorkflowRunForPrincipal(input, platformDeps);
+
+    return c.json(result);
+  });
+  app.post('/api/projects/:projectId/mastra/workflows/:workflowId/start', async (c) => {
+    const principal = c.get('principal');
+    const body = await c.req.json<{ runId?: string; inputData?: unknown; threadId?: string }>();
+    const input = {
+      firebaseUid: principal.uid,
+      projectId: c.req.param('projectId'),
+      workflowId: c.req.param('workflowId'),
+      ...(body.runId ? { runId: body.runId } : {}),
+      ...(body.threadId ? { threadId: body.threadId } : {}),
+      inputData: body.inputData,
+    };
+    const result = params.startWorkspaceMastraWorkflow
+      ? await params.startWorkspaceMastraWorkflow(input)
+      : await startMindspaceMastraWorkflowForPrincipal(input, platformDeps);
 
     return c.json(result);
   });

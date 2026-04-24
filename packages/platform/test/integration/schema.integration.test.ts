@@ -4,11 +4,11 @@ import '../../src/db/client';
 import { listAppTables } from '../../src/db/schema';
 
 describe('database schema', () => {
-  it('contains the workspace control-plane tables', async () => {
+  it('contains the mindspace control-plane tables', async () => {
     const tables = await listAppTables();
 
-    expect(tables).toContain('workspace_roots');
-    expect(tables).toContain('workspace_bindings');
-    expect(tables).toContain('workspace_locks');
+    expect(tables).toContain('mindspace_roots');
+    expect(tables).toContain('mindspace_bindings');
+    expect(tables).toContain('mindspace_locks');
   });
 });

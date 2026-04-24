@@ -1,4 +1,4 @@
-// ABOUTME: Shared test fixtures for integration tests — seeds an org/user/project/workspace
+// ABOUTME: Shared test fixtures for integration tests — seeds an org/user/project/mindspace
 // ABOUTME: using real repositories + provisioning against the current DATABASE_URL (Neon branch).
 
 import { randomUUID } from 'node:crypto';
@@ -11,18 +11,18 @@ import { addOrganizationMembership } from '../../src/db/repositories/memberships
 import { createOrganization } from '../../src/db/repositories/organizations';
 import { createProject } from '../../src/db/repositories/projects';
 import { upsertUser } from '../../src/db/repositories/users';
-import type { WorkspaceFactory } from '../../src/platform-deps';
-import { provisionWorkspaceForProject } from '../../src/workspace/provisioning';
+import type { MindspaceFactory } from '../../src/platform-deps';
+import { provisionMindspaceForProject } from '../../src/mindspace/provisioning';
 
 export type SeededProject = {
   user: { id: string; firebaseUid: string };
   organization: { id: string };
   project: { id: string };
-  workspaceRootPath: string;
-  workspaceFactory: WorkspaceFactory;
+  mindspaceRootPath: string;
+  mindspaceFactory: MindspaceFactory;
 };
 
-export function createLocalWorkspaceFactory(): WorkspaceFactory {
+export function createLocalMindspaceFactory(): MindspaceFactory {
   return async (basePath: string) => {
     const workspace = new Workspace({
       filesystem: new LocalFilesystem({
@@ -53,7 +53,7 @@ export async function seedProjectFixture(
   const firebaseUid = options.firebaseUid ?? `test-${randomUUID()}`;
   const email = options.email ?? `${firebaseUid}@test.local`;
   const projectName = options.projectName ?? `Test Project ${firebaseUid.slice(0, 8)}`;
-  const workspaceRoot = resolve(tmpdir(), 'hono-workspace-test', randomUUID());
+  const mindspaceRoot = resolve(tmpdir(), 'mastra-mindspace-test', randomUUID());
 
   const organization = await createOrganization({
     name: `Test Org ${firebaseUid.slice(0, 8)}`,
@@ -74,20 +74,20 @@ export async function seedProjectFixture(
     name: projectName,
     slug: `${projectName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now().toString(36)}`,
   });
-  const provisioned = await provisionWorkspaceForProject({
+  const provisioned = await provisionMindspaceForProject({
     organizationId: organization.id,
     projectId: project.id,
     requestedBy: user.id,
     activeAgentRef: 'default',
     activeAgentVersion: 'v1',
-    workspaceRoot,
+    mindspaceRoot,
   });
 
   return {
     user: { id: user.id, firebaseUid },
     organization: { id: organization.id },
     project: { id: project.id },
-    workspaceRootPath: provisioned.root.root_path,
-    workspaceFactory: createLocalWorkspaceFactory(),
+    mindspaceRootPath: provisioned.root.root_path,
+    mindspaceFactory: createLocalMindspaceFactory(),
   };
 }

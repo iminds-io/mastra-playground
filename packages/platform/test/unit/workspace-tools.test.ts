@@ -7,10 +7,10 @@ import { describe, expect, it } from 'vitest';
 import {
   listDirTool,
   readFileTool,
-  workspaceReadOnlyToolkit,
-  workspaceToolkit,
+  mindspaceReadOnlyToolkit,
+  mindspaceToolkit,
   writeFileTool,
-} from '../../src/mastra/tools/workspace-tools';
+} from '../../src/mastra/tools/mindspace-tools';
 
 function createWorkspaceStub(overrides: Partial<Record<'readFile' | 'readdir' | 'writeFile', unknown>> = {}) {
   return {
@@ -22,20 +22,20 @@ function createWorkspaceStub(overrides: Partial<Record<'readFile' | 'readdir' | 
   } as never;
 }
 
-describe('workspace tools are Mastra-native', () => {
+describe('mindspace tools are Mastra-native', () => {
   it('readFileTool is recognized as a Mastra Tool', () => {
     expect((readFileTool as { [MASTRA_TOOL_MARKER]?: boolean })[MASTRA_TOOL_MARKER]).toBe(true);
-    expect(readFileTool.id).toBe('workspace.readFile');
+    expect(readFileTool.id).toBe('mindspace.readFile');
   });
 
   it('listDirTool is recognized as a Mastra Tool', () => {
     expect((listDirTool as { [MASTRA_TOOL_MARKER]?: boolean })[MASTRA_TOOL_MARKER]).toBe(true);
-    expect(listDirTool.id).toBe('workspace.listDir');
+    expect(listDirTool.id).toBe('mindspace.listDir');
   });
 
   it('writeFileTool is recognized as a Mastra Tool', () => {
     expect((writeFileTool as { [MASTRA_TOOL_MARKER]?: boolean })[MASTRA_TOOL_MARKER]).toBe(true);
-    expect(writeFileTool.id).toBe('workspace.writeFile');
+    expect(writeFileTool.id).toBe('mindspace.writeFile');
   });
 });
 
@@ -63,7 +63,7 @@ describe('readFileTool', () => {
 });
 
 describe('listDirTool', () => {
-  it('lists a directory via workspace filesystem', async () => {
+  it('lists a directory via mindspace filesystem', async () => {
     const workspace = createWorkspaceStub({
       readdir: async (path: string, options?: { recursive?: boolean }) => {
         expect(path).toBe('docs');
@@ -85,7 +85,7 @@ describe('listDirTool', () => {
 });
 
 describe('writeFileTool', () => {
-  it('writes content to a file via workspace filesystem', async () => {
+  it('writes content to a file via mindspace filesystem', async () => {
     let captured: { path?: string; content?: unknown } = {};
     const workspace = createWorkspaceStub({
       writeFile: async (path: string, content: unknown) => {
@@ -104,11 +104,11 @@ describe('writeFileTool', () => {
 });
 
 describe('toolkits', () => {
-  it('workspaceReadOnlyToolkit exposes only read operations', () => {
-    expect(Object.keys(workspaceReadOnlyToolkit).sort()).toEqual(['listDir', 'readFile']);
+  it('mindspaceReadOnlyToolkit exposes only read operations', () => {
+    expect(Object.keys(mindspaceReadOnlyToolkit).sort()).toEqual(['listDir', 'readFile']);
   });
 
-  it('workspaceToolkit adds write operations on top of reads', () => {
-    expect(Object.keys(workspaceToolkit).sort()).toEqual(['listDir', 'readFile', 'writeFile']);
+  it('mindspaceToolkit adds write operations on top of reads', () => {
+    expect(Object.keys(mindspaceToolkit).sort()).toEqual(['listDir', 'readFile', 'writeFile']);
   });
 });

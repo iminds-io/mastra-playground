@@ -20,7 +20,7 @@ export type AccessibleProjectSummary = {
 export type BootstrapProjectResponse = {
   projectId: string;
   organizationId: string;
-  workspaceRootPath: string;
+  mindspaceRootPath: string;
   binding: {
     activeAgentRef: string;
     activeAgentVersion: string;
@@ -31,7 +31,7 @@ export type BootstrapProjectResponse = {
 
 export type AdminTestResponse = {
   resourceId: string;
-  workspaceRootPath: string;
+  mindspaceRootPath: string;
   threadId: string;
   runId?: string;
   modelId?: string;

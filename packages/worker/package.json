@@ -1,9 +1,9 @@
 {
-  "name": "@hono-workspace/worker",
+  "name": "@mastra-mindspace/worker",
   "private": true,
   "type": "module",
   "dependencies": {
-    "@hono-workspace/platform": "workspace:*",
+    "@mastra-mindspace/platform": "workspace:*",
     "@mastra/core": "1.25.0",
     "@mastra/hono": "1.4.4",
     "@mastra/s3": "latest",

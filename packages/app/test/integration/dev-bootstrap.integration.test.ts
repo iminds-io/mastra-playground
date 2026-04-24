@@ -2,7 +2,7 @@ import { rm } from 'node:fs/promises';
 
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { pool } from '@hono-workspace/platform/node';
+import { pool } from '@mastra-mindspace/platform/node';
 
 import { createApp } from '../../src/server/factory';
 
@@ -12,11 +12,11 @@ describe('dev bootstrap route', () => {
       truncate table
         channel_threads,
         project_channels,
-        workspace_provisioning_jobs,
-        workspace_events,
-        workspace_locks,
-        workspace_bindings,
-        workspace_roots,
+        mindspace_provisioning_jobs,
+        mindspace_events,
+        mindspace_locks,
+        mindspace_bindings,
+        mindspace_roots,
         organization_memberships,
         projects,
         users,
@@ -24,7 +24,7 @@ describe('dev bootstrap route', () => {
       restart identity cascade
     `);
 
-    await rm('/Users/pureicis/dev/mastra-playground/hono-workspace/var/workspaces', {
+    await rm('/Users/pureicis/dev/mastra-playground/hono-mindspace/var/workspaces', {
       recursive: true,
       force: true,
     });
@@ -65,7 +65,7 @@ describe('dev bootstrap route', () => {
     expect(payload.projectId).toBeTruthy();
     expect(payload.organizationId).toBeTruthy();
     expect(payload.defaultChannelId).toBeTruthy();
-    expect(payload.workspaceRootPath).toContain(`/project_${payload.projectId}`);
+    expect(payload.mindspaceRootPath).toContain(`/project_${payload.projectId}`);
     expect(payload.binding).toEqual({
       activeAgentRef: 'default',
       activeAgentVersion: 'v1',

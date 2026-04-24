@@ -8,11 +8,11 @@ describe('ingestPipeline workflow', () => {
       truncate table
         channel_threads,
         project_channels,
-        workspace_provisioning_jobs,
-        workspace_events,
-        workspace_locks,
-        workspace_bindings,
-        workspace_roots,
+        mindspace_provisioning_jobs,
+        mindspace_events,
+        mindspace_locks,
+        mindspace_bindings,
+        mindspace_roots,
         organization_memberships,
         projects,
         users,
@@ -26,19 +26,19 @@ describe('ingestPipeline workflow', () => {
     const { buildExecutionContext } = await import('../../src/mastra/execution/build-execution-context');
     const { loadProjectContext } = await import('../../src/services/project-context');
     const { seedProjectFixture } = await import('../helpers/fixtures');
-    const { resolveWorkspaceForProject } = await import('../../src/workspace/resolver');
+    const { resolveMindspaceForProject } = await import('../../src/mindspace/resolver');
 
     const fixture = await seedProjectFixture();
     const projectContext = await loadProjectContext({
       firebaseUid: fixture.user.firebaseUid,
       projectId: fixture.project.id,
     });
-    const resolved = await resolveWorkspaceForProject(fixture.project.id, {
-      workspaceFactory: fixture.workspaceFactory,
+    const resolved = await resolveMindspaceForProject(fixture.project.id, {
+      mindspaceFactory: fixture.mindspaceFactory,
     });
     const execution = buildExecutionContext({
       projectContext,
-      workspaceRootPath: resolved.root.root_path,
+      mindspaceRootPath: resolved.root.root_path,
       workspace: resolved.workspace,
       resourceId: `harness:ingest-pipeline:project:${fixture.project.id}`,
       threadId: 'ingest:no-files',
