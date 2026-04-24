@@ -51,18 +51,48 @@ Using `@mastra/pg` on CF Workers required three coordinated fixes (see commit `d
 The deployed worker's DATABASE_URL targets `mindcloud-test-01` (owned by `cl-admin-01`), while the runtime connects as `neondb_owner`. To apply schema updates:
 
 ```bash
-# 1. Get cl-admin-01's current password (or rotate and capture the new one)
-node --import tsx packages/worker/scripts/rotate-cladmin-password.ts   # TODO: build this helper
+# 1. Rotate cl-admin-01 via the Neon REST API and capture the returned password
+node - <<'NODE'
+const fs = require('fs');
+const env = Object.fromEntries(
+  fs
+    .readFileSync('.env', 'utf8')
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .filter((line) => !line.trim().startsWith('#'))
+    .map((line) => {
+      const idx = line.indexOf('=');
+      return [line.slice(0, idx), line.slice(idx + 1)];
+    }),
+);
+
+const branchId = 'br-jolly-meadow-an0q0lyo'; // production
+const response = await fetch(
+  `https://console.neon.tech/api/v2/projects/${env.NEON_PROJECT_ID}/branches/${branchId}/roles/cl-admin-01/reset_password`,
+  {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${env.NEON_API_KEY}` },
+  },
+);
+
+if (!response.ok) {
+  throw new Error(await response.text());
+}
+
+const data = await response.json();
+console.log(data.role.password);
+NODE
 
 # 2. Run platform migrations
 DATABASE_URL='postgresql://cl-admin-01:<pw>@<host>/mindcloud-test-01?sslmode=require&channel_binding=require' \
-  pnpm --filter @hono-workspace/platform db:migrate
+  pnpm --filter @mastra-mindspace/platform db:migrate
 
 # 3. Init Mastra schema (one-time; disableInit: true prevents runtime init)
-node --import tsx -e "
-import { initMastraSchema } from '@hono-workspace/platform';
-await initMastraSchema('postgresql://cl-admin-01:<pw>@<host>/mindcloud-test-01?sslmode=require&channel_binding=require');
-"
+DATABASE_URL='postgresql://cl-admin-01:<pw>@<host>/mindcloud-test-01?sslmode=require&channel_binding=require' \
+  pnpm --filter @mastra-mindspace/platform exec node --import tsx -e "
+  import { initMastraSchema } from './src/index.ts';
+  await initMastraSchema(process.env.DATABASE_URL);
+  "
 ```
 
 ## Troubleshooting

@@ -2,15 +2,20 @@
 
 **Status:** ✅ Deployed and verified against real infrastructure.
 **Completion date:** 2026-04-16
-**Deployed URL:** https://hono-workspace-api.dev-726.workers.dev
+**Current deployed URL:** https://mastra-mindspace-api.dev-726.workers.dev
 **Plan reference:** [01_cloudflare_worker_deployment.md](./01_cloudflare_worker_deployment.md)
+
+> Historical note: this deployment was originally completed before the hard-cut
+> `workspace` → `mindspace` and `hono-workspace` → `mastra-mindspace` rename.
+> Historical commit IDs remain unchanged; explanatory prose below has been
+> updated to the current terminology so the document matches the live system.
 
 ## Outcome
 
-The hono-workspace backend runs as a Cloudflare Worker with:
+The mastra-mindspace backend runs as a Cloudflare Worker with:
 
 - **Neon serverless PostgreSQL** via `@neondatabase/serverless` (WebSocket-backed `Pool`, created per request).
-- **R2-backed workspace filesystem** via `@mastra/s3` (`Workspace` instance created per request).
+- **R2-backed mindspace filesystem** via `@mastra/s3` (`Workspace` instance created per request).
 - **Mastra agent execution** through `@mastra/pg` with three coordinated CF compatibility fixes (see §4 below).
 - **Firebase ID token auth** verified against Google's JWKS in-worker.
 - **SSE streaming** via `ReadableStream` on the native Workers runtime.
@@ -25,9 +30,9 @@ All four testing layers are green on this deployment: 68/68 tests pass (31 unit 
 |---|---|
 | `960835a` | Added `packages/platform/src/db/context.ts` — module-level pool holder with `setDatabasePool()` / `getDatabasePool()`. |
 | `46497de` | Migrated all 12 repositories and 3 services from `import { pool } from '../db/client'` to `getDatabasePool()`. |
-| `eaf849d` | Added `packages/platform/src/workspace/workspace-context.ts` mirroring the DB context for workspace factories. |
-| `7697c11` | Made `WORKSPACE_ROOT` optional in `env.ts` (CF Workers have no filesystem root). |
-| `b262d6d` | Removed `node:fs` calls from `provisioning.ts` and `reconciliation.ts`; provisioning now accepts `workspaceRoot` as a parameter instead of reading env. |
+| `eaf849d` | Added the runtime context module later renamed to `packages/platform/src/mindspace/mindspace-context.ts`, mirroring the DB context for mindspace factories. |
+| `7697c11` | Made the root-path env optional in `env.ts` (now `MINDSPACE_ROOT`; CF Workers have no local filesystem root). |
+| `b262d6d` | Removed `node:fs` calls from provisioning and reconciliation; provisioning now accepts the mindspace root as a parameter instead of reading env. |
 | `2c06381` | Made project agent model configurable (`ProjectAgentConfig`) instead of reading `process.env` directly. |
 
 ### Phase 2 — Worker package
@@ -35,7 +40,7 @@ All four testing layers are green on this deployment: 68/68 tests pass (31 unit 
 | Commit | Change |
 |---|---|
 | `335166b` | Created `packages/worker/` with `wrangler.toml` (compat_date 2026-04-06, `nodejs_compat`), entry point `src/index.ts`, tsconfig, and `.dev.vars.example`. |
-| `c945833` | Moved Node-only `db/client.ts` behind `@hono-workspace/platform/node` subpath export so the worker bundle stays CF-compatible. |
+| `c945833` | Moved Node-only `db/client.ts` behind the platform `/node` subpath export (now `@mastra-mindspace/platform/node`) so the worker bundle stays CF-compatible. |
 
 ### Phase 3 — Bug fixes discovered via E2E
 
@@ -49,17 +54,17 @@ All four testing layers are green on this deployment: 68/68 tests pass (31 unit 
 
 ### Why a separate worker package, not a conversion of `packages/app`
 
-`packages/app` is the Node.js dev server and stays as-is — it's the ergonomic local-development surface and `packages/app` continues to use `pg` and `LocalFilesystem`. The CF Worker is a separate deployment target (`packages/worker`) that reuses `@hono-workspace/platform` with different runtime injections. Both packages share 100% of the business logic.
+`packages/app` is the Node.js dev server and stays as-is — it's the ergonomic local-development surface and `packages/app` continues to use `pg` and `LocalFilesystem`. The CF Worker is a separate deployment target (`packages/worker`) that reuses `@mastra-mindspace/platform` with different runtime injections. Both packages share 100% of the business logic.
 
-### Why injectable pool/workspace instead of a compile-time switch
+### Why injectable pool/mindspace instead of a compile-time switch
 
-The platform doesn't know or care which runtime it's in. It calls `getDatabasePool()` and `getWorkspaceFactory()`; callers register implementations at boot. This keeps platform code framework-agnostic and makes integration tests easy (they register a Neon HTTP pool against a fresh branch).
+The platform doesn't know or care which runtime it's in. It calls `getDatabasePool()` and `getMindspaceFactory()`; callers register implementations at boot. This keeps platform code framework-agnostic and makes integration tests easy (they register a Neon HTTP pool against a fresh branch).
 
 ### Why `neon()` HTTP pool for our repos but WebSocket `Pool` for Mastra
 
 Our own repo queries are idempotent single-statement ops — HTTP mode is perfect (stateless, fast, CF-safe). Mastra's `init()` emits multi-statement DDL that Neon's HTTP transport rejects (`42601: cannot insert multiple commands into a prepared statement`). So Mastra uses the WebSocket `Pool`, which supports multi-statement DDL. The cross-request I/O hazard is neutralized by disabling init at runtime.
 
-### Why `@hono-workspace/platform/node` subpath export
+### Why `@mastra-mindspace/platform/node` subpath export
 
 `packages/platform/src/db/client.ts` calls `dotenv.config()` and `fileURLToPath(import.meta.url)` at module load. Those Node APIs crash when the CF Worker bundle imports them transitively. Splitting via subpath (`/node` for Node.js-only exports) keeps the default export CF-safe.
 
@@ -102,7 +107,7 @@ After A and B were fixed, a single request succeeded. Concurrent requests deadlo
 
 ## Deliverables
 
-- **Deployed worker** at `hono-workspace-api.dev-726.workers.dev` — version `1cce7aa2-84b1-41b1-8a47-755cee8fa8e4`.
+- **Deployed worker** at `mastra-mindspace-api.dev-726.workers.dev` — version `ec75565f-b04b-490a-bb8e-49ecaa8381be`.
 - **Production DB** fully provisioned (39 tables in `mindcloud-test-01`).
 - **Worker secrets** managed via `wrangler secret put` — 9 values in production.
 - **Platform refactored** to be runtime-agnostic. The Node.js `packages/app` still works unchanged.

@@ -3,20 +3,21 @@
 **Category:** Reference
 **Tags:** mastra, agents, workflows, supervisor-agents, cloudflare-workers
 **Last Updated:** 2026-04-23
-**References:** [`01_technical_architecture.md`](./01_technical_architecture.md), [`03_native_mastra_multi_agent_management_implementation_plan.md`](../tasks/03_native_mastra_multi_agent_management_implementation_plan.md)
+**References:** [`01_technical_architecture.md`](./01_technical_architecture.md), [`03_native_mastra_multi_agent_management_implementation_plan.md`](../tasks/03_native_mastra_multi_agent_management_implementation_plan.md), [`08_mindspace_scoped_mastra_gateway_implementation_plan.md`](../tasks/08_mindspace_scoped_mastra_gateway_implementation_plan.md)
 
 ---
 
 ## Overview
 
-This is the canonical recipe for extending the Mastra surface in `hono-workspace`.
+This is the canonical recipe for extending the Mastra surface in `mastra-mindspace`.
 
 Mastra provides the primitives: `Agent`, `Workflow`, supervisor delegation through normal `generate()` / `stream()` calls, `MastraServer`, editor-backed stored overrides, and the app-level `agents` / `workflows` registry.
 
-This repo adds two local conventions:
+This repo adds three local conventions:
 
-- Use `buildWorkspaceAgent()` for every workspace-aware agent so Cloudflare, workspace, model, memory, and toolkit constraints stay consistent.
+- Use `buildMindspaceAgent()` for every mindspace-aware agent so Cloudflare, project terminology, model, memory, and toolkit constraints stay consistent.
 - Register code-defined agents and workflows through `mastra/agents/registry.ts` and `mastra/workflows/registry.ts`, not by growing ad hoc imports in `create-mastra.ts`.
+- Add explicit primitive metadata in `mastra/registry-metadata.ts` so the mindspace-scoped gateway can decide which agents/workflows are exposed to product clients.
 
 Do not use `.network()` for new work. Mastra marks agent networks as deprecated; supervisor agents are the current recommended native primitive for multi-agent coordination.
 
@@ -27,26 +28,30 @@ Do not use `.network()` for new work. Mastra marks agent networks as deprecated;
 - **Specialist agents** do one job well: summarize, review, plan, write, etc.
 - **Supervisor agents** coordinate specialists when the route should let the model decide delegation order.
 - **Workflows** encode known execution graphs where sequence, branching, or structured outputs matter more than flexible delegation.
-- **Tier A** (`/api/mastra/*`) exposes registered agents and workflows generically.
-- **Tier B** (`/api/projects/:projectId/...`) wraps agents/workflows when project authorization, workspace resolution, or request shaping is required.
+- **Native/internal Mastra surface** (`/api/mastra/*`) exposes registered agents and workflows generically.
+- **Mindspace-scoped Mastra surface** (`/api/projects/:projectId/mastra/*`) is the main product-facing Mastra API.
+- **Convenience product routes** (`/api/projects/:projectId/summarize`, `/supervise`, etc.) wrap common patterns on top of the same project/mindspace context model.
 
-Tier A is useful for generic execution and editor workflows. Tier B is required for production user-facing project operations.
+Use the mindspace-scoped Mastra surface for new product-facing primitive execution. Keep the native/internal surface for editor/admin/dev/diagnostic use.
 
 ---
 
 ## Required Conventions
 
-Every workspace-aware agent and workflow step must follow these rules:
+Every mindspace-aware agent and workflow step must follow these rules:
 
-1. **Use `buildWorkspaceAgent()` for agents.** It enforces OpenRouter model resolution, `observationalMemory: false`, workspace binding from `RequestContext`, and toolkit registration.
-2. **Use the correct toolkit.** Use `workspaceReadOnlyToolkit` for analysis/summarization/review agents; use `workspaceToolkit` only when the agent is allowed to write files.
-3. **Workspace comes from `RequestContext`.** Never capture a `Workspace` in an agent constructor. Worker I/O objects are request-scoped.
+1. **Use `buildMindspaceAgent()` for agents.** It enforces OpenRouter model resolution, `observationalMemory: false`, Mastra `Workspace` binding from `RequestContext`, and toolkit registration.
+2. **Use the correct toolkit.** Use `mindspaceReadOnlyToolkit` for analysis/summarization/review agents; use `mindspaceToolkit` only when the agent is allowed to write files.
+3. **Mastra `Workspace` comes from `RequestContext`.** Never capture a `Workspace` in an agent constructor. Worker I/O objects are request-scoped.
 4. **Keep `PostgresStore.disableInit: true`.** Mastra schema changes are initialized out-of-band with `initMastraSchema()`.
-5. **Use explicit service deps.** Tier B services receive `{ mastra, workspaceFactory }` through `PlatformDeps`.
+5. **Use explicit service deps.** Mindspace-scoped services receive `{ mastra, mindspaceFactory }` through `PlatformDeps`.
 6. **Use stable memory resource IDs.** Current conventions:
    - `channel:<channelId>` for chat surfaces with channel-thread history.
    - `project:<projectId>` for project-wide memory.
    - `harness:<surface>:project:<projectId>` for per-surface scratch memory.
+7. **Keep registry keys aligned with primitive ids.** Registry keys should match agent/workflow ids unless there is a documented legacy exception.
+8. **Update registry metadata.** Every code-defined primitive must have a corresponding metadata entry in `mastra/registry-metadata.ts`.
+9. **Decide mindspace-gateway exposure explicitly.** New primitives should be marked exposed/not-exposed through metadata instead of being implicitly discoverable to product clients.
 
 ---
 
@@ -54,19 +59,19 @@ Every workspace-aware agent and workflow step must follow these rules:
 
 ### 1. Define The Agent
 
-Use `summarizer.ts` or `workspace-reviewer.ts` as the template.
+Use `summarizer.ts` or `mindspace-reviewer.ts` as the template.
 
 ```ts
 // packages/platform/src/mastra/agents/my-agent.ts
 // ABOUTME: One-line purpose.
 // ABOUTME: Notes whether this agent is read-only or write-capable.
 
-import { workspaceReadOnlyToolkit } from '../tools/workspace-tools';
-import { buildWorkspaceAgent } from './build-agent';
+import { mindspaceReadOnlyToolkit } from '../tools/mindspace-tools';
+import { buildMindspaceAgent } from './build-agent';
 import type { ProjectAgentConfig } from './project-agent';
 
 export function createMyAgent(config: ProjectAgentConfig = {}) {
-  return buildWorkspaceAgent({
+  return buildMindspaceAgent({
     id: 'my-agent' as const,
     name: 'My Agent',
     description: 'Clear description used by supervisors to decide when to delegate.',
@@ -77,13 +82,13 @@ export function createMyAgent(config: ProjectAgentConfig = {}) {
       `Project: ${requestContext.get('projectId')}`,
       `Caller role: ${requestContext.get('role')}`,
     ].join('\n'),
-    toolkit: workspaceReadOnlyToolkit,
+    toolkit: mindspaceReadOnlyToolkit,
     config,
   });
 }
 ```
 
-Use `workspaceToolkit` only if the agent is intentionally write-capable.
+Use `mindspaceToolkit` only if the agent is intentionally write-capable.
 
 ### 2. Register It
 
@@ -94,13 +99,13 @@ import { createMyAgent } from './my-agent';
 export function createAgentRegistry(config: ProjectAgentConfig = {}, deps: AgentRegistryDeps) {
   const projectAgent = createProjectAgent(config);
   const summarizer = createSummarizerAgent(config);
-  const workspaceReviewer = createWorkspaceReviewerAgent(config);
+  const mindspaceReviewer = createMindspaceReviewerAgent(config);
   const myAgent = createMyAgent(config);
-  const workspaceSupervisor = createWorkspaceSupervisorAgent(
+  const mindspaceSupervisor = createMindspaceSupervisorAgent(
     {
       agents: {
         summarizer,
-        workspaceReviewer,
+        mindspaceReviewer,
         myAgent,
       },
       workflows: {
@@ -113,9 +118,9 @@ export function createAgentRegistry(config: ProjectAgentConfig = {}, deps: Agent
   return {
     projectAgent,
     summarizer,
-    workspaceReviewer,
+    mindspaceReviewer,
     myAgent,
-    'workspace-supervisor': workspaceSupervisor,
+    'mindspace-supervisor': mindspaceSupervisor,
   };
 }
 ```
@@ -144,8 +149,23 @@ Run:
 
 ```bash
 pnpm test:unit -- --run packages/platform/test/unit/create-mastra.test.ts
-pnpm --filter @hono-workspace/platform typecheck
+pnpm --filter @mastra-mindspace/platform typecheck
 ```
+
+### 5. Add Metadata
+
+Add a metadata entry in `packages/platform/src/mastra/registry-metadata.ts`:
+
+```ts
+myAgent: {
+  id: 'myAgent',
+  capability: 'read',
+  operations: ['generate', 'stream'],
+  exposed: true,
+},
+```
+
+If the agent is write-capable, start with `exposed: false` unless the product/API policy explicitly requires exposure.
 
 ---
 
@@ -157,11 +177,11 @@ Supervisor agents are normal Mastra agents with an `agents` map and optional `wo
 
 ```ts
 // packages/platform/src/mastra/agents/my-supervisor.ts
-import { workspaceReadOnlyToolkit } from '../tools/workspace-tools';
-import { buildWorkspaceAgent } from './build-agent';
+import { mindspaceReadOnlyToolkit } from '../tools/mindspace-tools';
+import { buildMindspaceAgent } from './build-agent';
 
-export function createMySupervisorAgent(deps: WorkspaceSupervisorDeps, config: ProjectAgentConfig = {}) {
-  return buildWorkspaceAgent({
+export function createMySupervisorAgent(deps: MindspaceSupervisorDeps, config: ProjectAgentConfig = {}) {
+  return buildMindspaceAgent({
     id: 'my-supervisor' as const,
     name: 'My Supervisor',
     description: 'Coordinates read-only specialists for multi-step analysis.',
@@ -171,7 +191,7 @@ export function createMySupervisorAgent(deps: WorkspaceSupervisorDeps, config: P
       'Synthesize specialist results into one final answer.',
       `Project: ${requestContext.get('projectId')}`,
     ].join('\n'),
-    toolkit: workspaceReadOnlyToolkit,
+    toolkit: mindspaceReadOnlyToolkit,
     agents: deps.agents,
     workflows: deps.workflows,
     defaultOptions: {
@@ -250,11 +270,24 @@ export function createWorkflowRegistry() {
 
 On Cloudflare Workers, the workflow must complete within the request's I/O lifetime unless we introduce Durable Objects, queues, or another durable execution system.
 
+### 4. Add Metadata
+
+Add a metadata entry in `packages/platform/src/mastra/registry-metadata.ts`:
+
+```ts
+myWorkflow: {
+  id: 'myWorkflow',
+  capability: 'read',
+  operations: ['create-run', 'start'],
+  exposed: true,
+},
+```
+
 ---
 
-## Add A Tier B Domain Route
+## Add A Convenience Product Route
 
-Add a Tier B route when the operation needs project authorization, workspace resolution, input shaping, version targeting, or a stable product API.
+Add a convenience product route only when the operation needs a bespoke request/response contract. For general product-facing primitive execution, prefer exposing the primitive through the mindspace-scoped Mastra gateway under `/api/projects/:projectId/mastra/*`.
 
 The service pattern is:
 
@@ -267,12 +300,12 @@ export async function runMyAgentForPrincipal(
     firebaseUid: input.firebaseUid,
     projectId: input.projectId,
   });
-  const resolved = await resolveWorkspaceForProject(input.projectId, {
-    workspaceFactory: deps.workspaceFactory,
+  const resolved = await resolveMindspaceForProject(input.projectId, {
+    mindspaceFactory: deps.mindspaceFactory,
   });
   const execution = buildExecutionContext({
     projectContext,
-    workspaceRootPath: resolved.root.root_path,
+    mindspaceRootPath: resolved.root.root_path,
     workspace: resolved.workspace,
     resourceId: `harness:my-agent:project:${input.projectId}`,
     threadId: `my-agent:${Date.now()}`,
@@ -301,7 +334,7 @@ Keep the app route injectable for fast integration tests.
 
 Code-defined agents are editable through `@mastra/editor` once registered in `createMastra()`.
 
-Tier B routes that support stored overrides should:
+Convenience product routes that support stored overrides should:
 
 1. Parse query params with `parseAgentVersionFromQuery()`.
 2. Pass `version` into the service deps.
@@ -319,26 +352,26 @@ Do not assume subagent version overrides inside supervisor delegation until veri
 
 ## Verification Checklist
 
-After adding an agent, supervisor, workflow, or Tier B route, run the smallest relevant set first:
+After adding an agent, supervisor, workflow, or convenience product route, run the smallest relevant set first:
 
 ```bash
 pnpm test:unit -- --run packages/platform/test/unit/create-mastra.test.ts
 pnpm test:unit -- --run packages/platform/test/unit/mastra-registry.test.ts
-pnpm --filter @hono-workspace/platform typecheck
+pnpm --filter @mastra-mindspace/platform typecheck
 ```
 
-For Tier B app routes:
+For convenience product app routes:
 
 ```bash
 pnpm exec vitest run --config vitest.config.ts packages/app/test/integration/authenticated-routes.integration.test.ts
 pnpm exec vitest run --config vitest.config.ts packages/app/test/integration/agent-version-targeting.integration.test.ts
-pnpm --filter @hono-workspace/app typecheck
+pnpm --filter @mastra-mindspace/app typecheck
 ```
 
 For Worker routes:
 
 ```bash
-pnpm --filter @hono-workspace/worker typecheck
+pnpm --filter @mastra-mindspace/worker typecheck
 pnpm test:e2e
 ```
 
