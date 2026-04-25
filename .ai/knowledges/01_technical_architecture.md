@@ -2,6 +2,7 @@
 
 **Status:** Living document. Reflects the current worktree as of 2026-04-23.
 **Scope:** Complete technical picture: packages, runtime targets, data flow, deployment, testing, and known gotchas.
+**Reuse Guide:** For porting this architecture into another project, see [`03_porting_and_reusing_mastra_mindspace.md`](./03_porting_and_reusing_mastra_mindspace.md).
 
 ---
 

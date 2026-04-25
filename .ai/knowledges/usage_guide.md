@@ -3,7 +3,7 @@
 **Category:** Reference
 **Tags:** onboarding, usage, deployment, api, mastra, testing
 **Last Updated:** 2026-04-23
-**References:** [`01_technical_architecture.md`](./01_technical_architecture.md), [`02_adding_agents_and_workflows.md`](./02_adding_agents_and_workflows.md), [`packages/worker/test/README.md`](../../packages/worker/test/README.md)
+**References:** [`01_technical_architecture.md`](./01_technical_architecture.md), [`02_adding_agents_and_workflows.md`](./02_adding_agents_and_workflows.md), [`03_porting_and_reusing_mastra_mindspace.md`](./03_porting_and_reusing_mastra_mindspace.md), [`packages/worker/test/README.md`](../../packages/worker/test/README.md)
 
 ---
 
