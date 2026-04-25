@@ -7,6 +7,7 @@ import { S3Filesystem } from '@mastra/s3';
 import { Workspace } from '@mastra/core/workspace';
 
 import {
+  ChannelEventEmitter,
   setDatabasePool,
   createMastra,
   createFirebaseTokenVerifier,
@@ -20,6 +21,15 @@ import {
   listAccessibleProjectsForPrincipal,
   listChannelThreadsForPrincipal,
   listProjectChannelsForPrincipal,
+  getProjectGeneralSettingsForPrincipal,
+  updateProjectGeneralSettingsForPrincipal,
+  archiveProjectForPrincipal,
+  listProjectSettingsMembersForPrincipal,
+  inviteProjectMemberForPrincipal,
+  removeProjectMemberForPrincipal,
+  listProjectMindConfigsForPrincipal,
+  updateProjectMindConfigForPrincipal,
+  searchChannelMessagesForPrincipal,
   sendChannelMessageForPrincipal,
   streamChannelReplyForPrincipal,
   summarizeProjectDocsForPrincipal,
@@ -146,6 +156,7 @@ function createSseResponse(stream: AsyncIterable<StreamEvent>) {
 }
 
 const app = new Hono<HonoEnv>();
+const channelEventEmitter = new ChannelEventEmitter();
 
 app.use('*', async (c, next) => {
   const deps = bootRequest(c.env);
@@ -157,6 +168,77 @@ app.use('*', async (c, next) => {
 // Health routes (no auth)
 app.get('/health', (c) => c.json({ status: 'ok' }));
 app.get('/ready', (c) => c.json({ ok: true }));
+
+app.get('/api/projects/:projectId/channels/:channelId/events', async (c) => {
+  const token = c.req.query('token');
+  if (!token) {
+    return c.json({ error: 'Missing token query parameter' }, 401);
+  }
+
+  const tokenVerifier = createFirebaseTokenVerifier({
+    projectId: c.env.FIREBASE_PROJECT_ID,
+  });
+
+  let principal: Principal;
+  try {
+    const decoded = await tokenVerifier.verifyIdToken(token);
+    principal = {
+      uid: decoded.uid,
+      email: decoded.email ?? null,
+      name: decoded.name ?? null,
+    };
+  } catch {
+    return c.json({ error: 'Invalid token' }, 401);
+  }
+
+  const projectId = c.req.param('projectId');
+  const channelId = c.req.param('channelId');
+  const access = await listProjectChannelsForPrincipal({
+    firebaseUid: principal.uid,
+    projectId,
+  });
+
+  if (!access.channels.some((channel) => channel.id === channelId)) {
+    return c.json({ error: 'Channel not found' }, 404);
+  }
+
+  const encoder = new TextEncoder();
+  let unsubscribe = () => {};
+  let heartbeat: ReturnType<typeof setInterval> | null = null;
+
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode(`event: connected\ndata: ${JSON.stringify({ channelId })}\n\n`),
+        );
+
+        unsubscribe = channelEventEmitter.subscribe(channelId, (event) => {
+          controller.enqueue(
+            encoder.encode(`event: ${event.event}\ndata: ${JSON.stringify(event.data)}\n\n`),
+          );
+        });
+
+        heartbeat = setInterval(() => {
+          controller.enqueue(encoder.encode(`event: heartbeat\ndata: {}\n\n`));
+        }, 30_000);
+      },
+      cancel() {
+        unsubscribe();
+        if (heartbeat) {
+          clearInterval(heartbeat);
+        }
+      },
+    }),
+    {
+      headers: {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-cache, no-transform',
+        connection: 'keep-alive',
+      },
+    },
+  );
+});
 
 // Auth middleware for /api/* routes
 app.use('/api/*', async (c, next) => {
@@ -235,15 +317,107 @@ app.get('/api/projects', async (c) => {
   return c.json(result);
 });
 
+app.get('/api/projects/:projectId/settings/general', async (c) => {
+  const principal = c.get('principal');
+  const result = await getProjectGeneralSettingsForPrincipal({
+    firebaseUid: principal.uid,
+    projectId: c.req.param('projectId'),
+  });
+  return c.json(result);
+});
+
+app.patch('/api/projects/:projectId/settings/general', async (c) => {
+  const principal = c.get('principal');
+  const body = await c.req.json<{ name?: string }>();
+  const result = await updateProjectGeneralSettingsForPrincipal({
+    firebaseUid: principal.uid,
+    projectId: c.req.param('projectId'),
+    name: body.name ?? '',
+  });
+  return c.json(result);
+});
+
+app.post('/api/projects/:projectId/settings/archive', async (c) => {
+  const principal = c.get('principal');
+  const result = await archiveProjectForPrincipal({
+    firebaseUid: principal.uid,
+    projectId: c.req.param('projectId'),
+  });
+  return c.json(result);
+});
+
+app.get('/api/projects/:projectId/settings/members', async (c) => {
+  const principal = c.get('principal');
+  const result = await listProjectSettingsMembersForPrincipal({
+    firebaseUid: principal.uid,
+    projectId: c.req.param('projectId'),
+  });
+  return c.json(result);
+});
+
+app.post('/api/projects/:projectId/settings/members/invite', async (c) => {
+  const principal = c.get('principal');
+  const body = await c.req.json<{ email?: string; role?: string }>();
+  const result = await inviteProjectMemberForPrincipal({
+    firebaseUid: principal.uid,
+    projectId: c.req.param('projectId'),
+    email: body.email ?? '',
+    role: body.role ?? 'member',
+  });
+  return c.json(result);
+});
+
+app.delete('/api/projects/:projectId/settings/members/:membershipId', async (c) => {
+  const principal = c.get('principal');
+  const result = await removeProjectMemberForPrincipal({
+    firebaseUid: principal.uid,
+    projectId: c.req.param('projectId'),
+    membershipId: c.req.param('membershipId'),
+  });
+  return c.json(result);
+});
+
+app.get('/api/projects/:projectId/settings/minds', async (c) => {
+  const principal = c.get('principal');
+  const result = await listProjectMindConfigsForPrincipal({
+    firebaseUid: principal.uid,
+    projectId: c.req.param('projectId'),
+  });
+  return c.json(result);
+});
+
+app.patch('/api/projects/:projectId/settings/minds/:mindId', async (c) => {
+  const principal = c.get('principal');
+  const body = await c.req.json<{
+    displayName?: string;
+    icon?: string;
+    blurb?: string | null;
+    enabled?: boolean;
+    promptOverride?: string | null;
+  }>();
+  const result = await updateProjectMindConfigForPrincipal({
+    firebaseUid: principal.uid,
+    projectId: c.req.param('projectId'),
+    mindId: c.req.param('mindId'),
+    ...(body.displayName !== undefined ? { displayName: body.displayName } : {}),
+    ...(body.icon !== undefined ? { icon: body.icon } : {}),
+    ...(body.blurb !== undefined ? { blurb: body.blurb } : {}),
+    ...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
+    ...(body.promptOverride !== undefined ? { promptOverride: body.promptOverride } : {}),
+  });
+  return c.json(result);
+});
+
 app.post('/api/dev/bootstrap-project', async (c) => {
   const principal = c.get('principal');
+  const mastra = c.get('mastra');
   const body = await c.req.json<{ name?: string }>();
   const result = await bootstrapProjectForPrincipal({
     uid: principal.uid,
     email: principal.email,
     name: principal.name,
     ...(body.name ? { projectName: body.name } : {}),
-  });
+  }, { mastra });
   return c.json(result);
 });
 
@@ -398,13 +572,15 @@ app.get('/api/projects/:projectId/channels', async (c) => {
 
 app.post('/api/projects/:projectId/channels', async (c) => {
   const principal = c.get('principal');
+  const mastra = c.get('mastra');
+  const mindspaceFactory = c.get('mindspaceFactory');
   const body = await c.req.json<{ name?: string; description?: string }>();
   const result = await createProjectChannelForPrincipal({
     firebaseUid: principal.uid,
     projectId: c.req.param('projectId'),
     name: body.name ?? '',
     description: body.description ?? null,
-  });
+  }, { mastra, mindspaceFactory, channelEventEmitter });
   return c.json(result);
 });
 
@@ -416,7 +592,26 @@ app.get('/api/projects/:projectId/channels/:channelId/feed', async (c) => {
     firebaseUid: principal.uid,
     projectId: c.req.param('projectId'),
     channelId: c.req.param('channelId'),
-  }, { mastra, mindspaceFactory });
+  }, { mastra, mindspaceFactory, channelEventEmitter });
+  return c.json(result);
+});
+
+app.get('/api/projects/:projectId/search', async (c) => {
+  const principal = c.get('principal');
+  const q = c.req.query('q') ?? '';
+  const channelId = c.req.query('channelId') ?? undefined;
+  const pageValue = c.req.query('page');
+  const parsedPage = pageValue ? Number.parseInt(pageValue, 10) : undefined;
+  const page = Number.isFinite(parsedPage) && (parsedPage ?? 0) >= 0 ? parsedPage : undefined;
+
+  const result = await searchChannelMessagesForPrincipal({
+    firebaseUid: principal.uid,
+    projectId: c.req.param('projectId'),
+    query: q,
+    ...(channelId ? { channelId } : {}),
+    ...(page !== undefined ? { page } : {}),
+  });
+
   return c.json(result);
 });
 
@@ -430,7 +625,7 @@ app.post('/api/projects/:projectId/channels/:channelId/posts', async (c) => {
     projectId: c.req.param('projectId'),
     channelId: c.req.param('channelId'),
     message: body.message ?? '',
-  }, { mastra, mindspaceFactory });
+  }, { mastra, mindspaceFactory, channelEventEmitter });
   return c.json(result);
 });
 
@@ -454,7 +649,7 @@ app.post('/api/projects/:projectId/channels/:channelId/threads', async (c) => {
     projectId: c.req.param('projectId'),
     channelId: c.req.param('channelId'),
     title: body.title ?? null,
-  }, { mastra, mindspaceFactory });
+  }, { mastra, mindspaceFactory, channelEventEmitter });
   return c.json(result);
 });
 
@@ -467,7 +662,7 @@ app.get('/api/projects/:projectId/channels/:channelId/threads/:threadId', async 
     projectId: c.req.param('projectId'),
     channelId: c.req.param('channelId'),
     threadId: c.req.param('threadId'),
-  }, { mastra, mindspaceFactory });
+  }, { mastra, mindspaceFactory, channelEventEmitter });
   return c.json(result);
 });
 
@@ -482,7 +677,7 @@ app.post('/api/projects/:projectId/channels/:channelId/threads/:threadId/message
     channelId: c.req.param('channelId'),
     threadId: c.req.param('threadId'),
     message: body.message ?? '',
-  }, { mastra, mindspaceFactory });
+  }, { mastra, mindspaceFactory, channelEventEmitter });
   return c.json(result);
 });
 
@@ -490,13 +685,14 @@ app.post('/api/projects/:projectId/channels/:channelId/threads/:threadId/message
   const principal = c.get('principal');
   const mastra = c.get('mastra');
   const mindspaceFactory = c.get('mindspaceFactory');
-  const body = await c.req.json<{ message?: string }>();
+  const body = await c.req.json<{ message?: string; agentId?: string }>();
   const stream = await streamChannelReplyForPrincipal({
     firebaseUid: principal.uid,
     projectId: c.req.param('projectId'),
     channelId: c.req.param('channelId'),
     threadId: c.req.param('threadId'),
     ...(typeof body.message === 'string' ? { message: body.message } : {}),
+    ...(typeof body.agentId === 'string' ? { agentId: body.agentId } : {}),
   }, { mastra, mindspaceFactory });
 
   const encoder = new TextEncoder();

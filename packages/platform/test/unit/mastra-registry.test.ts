@@ -27,7 +27,15 @@ describe('createAgentRegistry', () => {
     const workflows = createWorkflowRegistry();
     const agents = createAgentRegistry({}, { workflows });
 
-    expect(Object.keys(agents)).toEqual(expect.arrayContaining(['projectAgent', 'summarizer']));
+    expect(Object.keys(agents)).toEqual(expect.arrayContaining(['projectAgent', 'librarian', 'summarizer']));
+  });
+
+  it('includes the librarian agent in the registry', () => {
+    const workflows = createWorkflowRegistry();
+    const agents = createAgentRegistry({}, { workflows });
+
+    expect(agents.librarian).toBeDefined();
+    expect(agents.librarian.id).toBe('librarian');
   });
 
   it('has mindspace gateway metadata for every code-defined agent', () => {

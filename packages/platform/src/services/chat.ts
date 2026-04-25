@@ -4,6 +4,8 @@ import type { Mastra } from '@mastra/core';
 import type { MastraDBMessage, StorageThreadType } from '@mastra/core/memory';
 
 import { AccessDeniedError } from './access-control';
+import type { ChannelEvent } from './channel-events';
+import { createSeedThread } from './channel-seeding';
 import { createProjectChannel, getProjectChannelById, listProjectChannels } from '../db/repositories/project-channels';
 import { getChannelThreadById, listChannelThreads, createChannelThread, updateChannelThreadMetadata } from '../db/repositories/channel-threads';
 import { loadProjectContext } from './project-context';
@@ -137,6 +139,10 @@ function toChatMessages(messages: MastraDBMessage[]): ChatMessageRecord[] {
 
 function deriveThreadTitle(message: string) {
   return message.trim().replace(/\s+/g, ' ').slice(0, 72) || 'New thread';
+}
+
+function emitChannelEvent(deps: ChatServiceDeps, channelId: string, event: ChannelEvent) {
+  deps.channelEventEmitter?.emit(channelId, event);
 }
 
 function createTextMessage(input: {
@@ -291,7 +297,7 @@ export async function createProjectChannelForPrincipal(input: {
   projectId: string;
   name: string;
   description?: string | null;
-}) {
+}, deps: ChatServiceDeps) {
   const projectContext = await loadProjectContext({
     firebaseUid: input.firebaseUid,
     projectId: input.projectId,
@@ -315,9 +321,17 @@ export async function createProjectChannelForPrincipal(input: {
     description: input.description ?? null,
     createdBy: projectContext.actorUserId,
   });
+  const memoryStore = await getMemoryStore(deps.mastra);
+  const seedThread = await createSeedThread({
+    channelId: channel.id,
+    channelName: name,
+    projectId: projectContext.projectId,
+    memoryStore,
+  });
 
   return {
     channel: toChannelSummary(channel),
+    seedThread,
   };
 }
 
@@ -369,6 +383,18 @@ export async function createChannelPostForPrincipal(input: {
   await updateChannelThreadMetadata({
     threadId: thread.id,
     lastMessageAt: now,
+  });
+
+  emitChannelEvent(deps, channel.id, {
+    event: 'new_thread',
+    data: {
+      thread: {
+        ...toThreadSummary(thread),
+        lastMessageAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+      },
+      rootMessage: toChatMessages([rootMessage])[0]!,
+    },
   });
 
   return {
@@ -518,6 +544,7 @@ export async function* streamChannelReplyForPrincipal(input: {
   channelId: string;
   threadId: string;
   message?: string;
+  agentId?: string;
 }, deps: ChatServiceDeps): AsyncGenerator<ChatStreamEvent> {
   const { projectContext, channel } = await requireProjectChannel(input);
   const thread = await getChannelThreadById({
@@ -551,7 +578,8 @@ export async function* streamChannelReplyForPrincipal(input: {
           },
         })
       ).messages;
-  const stream = await deps.mastra.getAgent('projectAgent').stream(messageInput, {
+  const agentId = input.agentId ?? 'projectAgent';
+  const stream = await deps.mastra.getAgent(agentId).stream(messageInput, {
     requestContext: execution.requestContext,
     memory: {
       thread: thread.id,
@@ -568,6 +596,15 @@ export async function* streamChannelReplyForPrincipal(input: {
     },
   };
 
+  emitChannelEvent(deps, channel.id, {
+    event: 'mind_streaming',
+    data: {
+      threadId: thread.id,
+      mindName: agentId === 'librarian' ? 'Librarian' : 'Project Agent',
+      status: 'started',
+    },
+  });
+
   for await (const token of stream.textStream) {
     yield {
       event: 'token',
@@ -582,6 +619,17 @@ export async function* streamChannelReplyForPrincipal(input: {
     ?.filter((message) => message.role === 'assistant')
     .at(-1);
   const lastMessageAt = assistantMessage?.createdAt ?? new Date();
+  const persistedMessages = await memoryStore.listMessages({
+    threadId: thread.id,
+    resourceId: execution.resourceId,
+    perPage: false,
+    page: 0,
+    orderBy: {
+      field: 'createdAt',
+      direction: 'ASC',
+    },
+  });
+  const replyCount = Math.max(0, persistedMessages.messages.length - 1);
 
   await updateChannelThreadMetadata({
     threadId: thread.id,
@@ -598,6 +646,19 @@ export async function* streamChannelReplyForPrincipal(input: {
         createdAt: assistantMessage.createdAt.toISOString(),
       },
     };
+
+    emitChannelEvent(deps, channel.id, {
+      event: 'new_message',
+      data: {
+        threadId: thread.id,
+        message: {
+          id: assistantMessage.id,
+          role: assistantMessage.role,
+          text: extractMessageText(assistantMessage),
+          createdAt: assistantMessage.createdAt.toISOString(),
+        },
+      },
+    });
   }
 
   yield {
@@ -605,10 +666,27 @@ export async function* streamChannelReplyForPrincipal(input: {
     data: {
       threadId: thread.id,
       lastMessageAt: lastMessageAt.toISOString(),
+      replyCount,
       modelId: output.response?.modelId,
       runId: output.runId,
     },
   };
+  emitChannelEvent(deps, channel.id, {
+    event: 'thread_updated',
+    data: {
+      threadId: thread.id,
+      lastMessageAt: lastMessageAt.toISOString(),
+      replyCount,
+    },
+  });
+  emitChannelEvent(deps, channel.id, {
+    event: 'mind_streaming',
+    data: {
+      threadId: thread.id,
+      mindName: agentId === 'librarian' ? 'Librarian' : 'Project Agent',
+      status: 'done',
+    },
+  });
   yield {
     event: 'done',
     data: {

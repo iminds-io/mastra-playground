@@ -24,6 +24,12 @@ export const mindspaceMastraAgentMetadata = {
     minRole: 'owner',
     exposed: false,
   },
+  librarian: {
+    id: 'librarian',
+    capability: 'read',
+    operations: ['generate', 'stream'],
+    exposed: false,
+  },
   summarizer: {
     id: 'summarizer',
     capability: 'read',

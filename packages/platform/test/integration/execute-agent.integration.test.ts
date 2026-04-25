@@ -4,7 +4,7 @@ import type { RequestContext } from '@mastra/core/request-context';
 
 import { pool } from '../../src/db/client';
 import type { ProjectAgentRequestContext } from '../../src/mastra/execution/request-context';
-import { addOrganizationMembership } from '../../src/db/repositories/memberships';
+import { addOrganizationMembership, addProjectMembership } from '../../src/db/repositories/memberships';
 import { createOrganization } from '../../src/db/repositories/organizations';
 import { createProject } from '../../src/db/repositories/projects';
 import { upsertUser } from '../../src/db/repositories/users';
@@ -22,6 +22,9 @@ describe('executeProjectAgent', () => {
         mindspace_locks,
         mindspace_bindings,
         mindspace_roots,
+        project_mind_configs,
+        project_invitations,
+        project_memberships,
         organization_memberships,
         projects,
         users,
@@ -53,6 +56,11 @@ describe('executeProjectAgent', () => {
 
     await addOrganizationMembership({
       organizationId: organization.id,
+      userId: user.id,
+      role: 'owner',
+    });
+    await addProjectMembership({
+      projectId: project.id,
       userId: user.id,
       role: 'owner',
     });
@@ -128,6 +136,9 @@ describe('executeProjectAgent with real Mastra PG', () => {
         mindspace_locks,
         mindspace_bindings,
         mindspace_roots,
+        project_mind_configs,
+        project_invitations,
+        project_memberships,
         organization_memberships,
         projects,
         users,

@@ -193,6 +193,52 @@ describe('authenticated routes', () => {
     });
   });
 
+  it('searches channel messages for the authenticated principal', async () => {
+    const app = await createApp({
+      tokenVerifier: {
+        async verifyIdToken() {
+          return verifiedPrincipal;
+        },
+      },
+      searchChannelMessages: async ({ firebaseUid, projectId, query, channelId, page }) => ({
+        results: [
+          {
+            messageId: `${firebaseUid}:${query}:${page ?? 0}`,
+            threadId: 'thread-1',
+            channelId: channelId ?? 'channel-all',
+            channelName: channelId ? 'engineering' : 'general',
+            messageText: 'deploy the auth fix before 5pm',
+            threadTitle: 'Deploy auth fix',
+            role: 'user',
+            createdAt: '2026-04-20T14:00:00.000Z',
+          },
+        ],
+      }),
+    });
+
+    const response = await app.request('/api/projects/project-1/search?q=deploy&channelId=channel-9&page=2', {
+      headers: {
+        authorization: 'Bearer demo-token',
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      results: [
+        {
+          messageId: 'firebase-user-1:deploy:2',
+          threadId: 'thread-1',
+          channelId: 'channel-9',
+          channelName: 'engineering',
+          messageText: 'deploy the auth fix before 5pm',
+          threadTitle: 'Deploy auth fix',
+          role: 'user',
+          createdAt: '2026-04-20T14:00:00.000Z',
+        },
+      ],
+    });
+  });
+
   it('lists mindspace-scoped Mastra agents for authenticated project members', async () => {
     const app = await createApp({
       tokenVerifier: {

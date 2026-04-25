@@ -7,7 +7,7 @@ import { resolve } from 'node:path';
 
 import { LocalFilesystem, LocalSandbox, Workspace } from '@mastra/core/workspace';
 
-import { addOrganizationMembership } from '../../src/db/repositories/memberships';
+import { addOrganizationMembership, addProjectMembership } from '../../src/db/repositories/memberships';
 import { createOrganization } from '../../src/db/repositories/organizations';
 import { createProject } from '../../src/db/repositories/projects';
 import { upsertUser } from '../../src/db/repositories/users';
@@ -73,6 +73,11 @@ export async function seedProjectFixture(
     organizationId: organization.id,
     name: projectName,
     slug: `${projectName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now().toString(36)}`,
+  });
+  await addProjectMembership({
+    projectId: project.id,
+    userId: user.id,
+    role: 'owner',
   });
   const provisioned = await provisionMindspaceForProject({
     organizationId: organization.id,

@@ -24,12 +24,12 @@ export async function loadProjectContext(input: {
         users.id as actor_user_id,
         projects.organization_id,
         projects.id as project_id,
-        organization_memberships.role
+        project_memberships.role
       from users
-      inner join organization_memberships
-        on organization_memberships.user_id = users.id
+      inner join project_memberships
+        on project_memberships.user_id = users.id
       inner join projects
-        on projects.organization_id = organization_memberships.organization_id
+        on projects.id = project_memberships.project_id
       where users.firebase_uid = $1
         and projects.id = $2
         and projects.status = 'active'

@@ -25,6 +25,7 @@ describe('createMastra', () => {
 
     expect(mastra).toBeDefined();
     expect(mastra.getAgent('projectAgent')).toBeDefined();
+    expect(mastra.getAgent('librarian')).toBeDefined();
     expect(mastra.getAgent('summarizer')).toBeDefined();
     expect(mastra.getWorkflow('ingestPipeline')).toBeDefined();
   });

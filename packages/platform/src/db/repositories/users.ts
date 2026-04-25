@@ -41,3 +41,35 @@ export async function getUserByFirebaseUid(firebaseUid: string): Promise<UserRec
 
   return result.rows[0] ?? null;
 }
+
+export async function getUserByEmail(email: string): Promise<UserRecord | null> {
+  const result = await getDatabasePool().query<UserRecord>(
+    `
+      select id, firebase_uid, email, display_name
+      from users
+      where lower(email) = lower($1)
+      limit 1
+    `,
+    [email],
+  );
+
+  return result.rows[0] ?? null;
+}
+
+export async function listUsersByIds(userIds: string[]): Promise<UserRecord[]> {
+  if (userIds.length === 0) {
+    return [];
+  }
+
+  const result = await getDatabasePool().query<UserRecord>(
+    `
+      select id, firebase_uid, email, display_name
+      from users
+      where id = any($1::uuid[])
+      order by display_name asc nulls last, email asc nulls last
+    `,
+    [userIds],
+  );
+
+  return result.rows;
+}

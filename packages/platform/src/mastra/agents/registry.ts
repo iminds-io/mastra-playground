@@ -2,6 +2,7 @@
 // ABOUTME: Keeps createMastra small as specialist and supervisor agents grow.
 
 import type { WorkflowRegistry } from '../workflows/registry';
+import { createLibrarianAgent } from './librarian';
 import { createProjectAgent } from './project-agent';
 import type { ProjectAgentConfig } from './project-agent';
 import { createSummarizerAgent } from './summarizer';
@@ -17,6 +18,7 @@ export function createAgentRegistry(
   deps: AgentRegistryDeps,
 ) {
   const projectAgent = createProjectAgent(config);
+  const librarian = createLibrarianAgent(config);
   const summarizer = createSummarizerAgent(config);
   const mindspaceReviewer = createMindspaceReviewerAgent(config);
   const mindspaceSupervisor = createMindspaceSupervisorAgent(
@@ -34,6 +36,7 @@ export function createAgentRegistry(
 
   return {
     projectAgent,
+    librarian,
     summarizer,
     mindspaceReviewer,
     'mindspace-supervisor': mindspaceSupervisor,

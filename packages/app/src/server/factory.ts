@@ -3,6 +3,7 @@ import { MastraServer } from '@mastra/hono';
 import { LocalFilesystem, LocalSandbox, Workspace } from '@mastra/core/workspace';
 
 import {
+  ChannelEventEmitter,
   bootstrapProjectForPrincipal,
   createChannelPostForPrincipal,
   createProjectChannelForPrincipal,
@@ -15,6 +16,15 @@ import {
   listAccessibleProjectsForPrincipal,
   listChannelThreadsForPrincipal,
   listProjectChannelsForPrincipal,
+  getProjectGeneralSettingsForPrincipal,
+  updateProjectGeneralSettingsForPrincipal,
+  archiveProjectForPrincipal,
+  listProjectSettingsMembersForPrincipal,
+  inviteProjectMemberForPrincipal,
+  removeProjectMemberForPrincipal,
+  listProjectMindConfigsForPrincipal,
+  updateProjectMindConfigForPrincipal,
+  searchChannelMessagesForPrincipal,
   sendChannelMessageForPrincipal,
   streamChannelReplyForPrincipal,
   summarizeProjectDocsForPrincipal,
@@ -68,6 +78,7 @@ type AppFactoryParams = {
   databaseUrl?: string;
   mastra?: ReturnType<typeof createMastra>;
   mindspaceFactory?: MindspaceFactory;
+  channelEventEmitter?: ChannelEventEmitter;
   /**
    * Comma-separated emails (or array) allowed to mutate /api/mastra/stored/*.
    * Falls back to process.env.ADMIN_EMAILS when omitted. Reads stay open to
@@ -107,6 +118,10 @@ type AppFactoryParams = {
       activeAgentVersion: string;
     };
     defaultChannelId: string;
+    seedThread?: {
+      threadId: string;
+      channelId: string;
+    };
   }>;
   listAccessibleProjects?: (input: {
     firebaseUid: string;
@@ -118,6 +133,134 @@ type AppFactoryParams = {
       slug: string;
       status: string;
     }>;
+  }>;
+  getProjectSettingsGeneral?: (input: {
+    firebaseUid: string;
+    projectId: string;
+  }) => Promise<{
+    role: string;
+    project: {
+      id: string;
+      organizationId: string;
+      name: string;
+      slug: string;
+      status: string;
+      createdAt: string;
+    };
+  }>;
+  updateProjectSettingsGeneral?: (input: {
+    firebaseUid: string;
+    projectId: string;
+    name: string;
+  }) => Promise<{
+    project: {
+      id: string;
+      organizationId: string;
+      name: string;
+      slug: string;
+      status: string;
+    };
+  }>;
+  archiveProjectSettings?: (input: {
+    firebaseUid: string;
+    projectId: string;
+  }) => Promise<{
+    project: {
+      id: string;
+      organizationId: string;
+      name: string;
+      slug: string;
+      status: string;
+    };
+  }>;
+  listProjectSettingsMembers?: (input: {
+    firebaseUid: string;
+    projectId: string;
+  }) => Promise<{
+    role: string;
+    members: Array<{
+      membershipId: string;
+      userId: string;
+      role: string;
+      displayName: string;
+      email: string | null;
+    }>;
+    invitations: Array<{
+      id: string;
+      email: string;
+      role: string;
+      status: string;
+    }>;
+  }>;
+  inviteProjectMember?: (input: {
+    firebaseUid: string;
+    projectId: string;
+    email: string;
+    role: string;
+  }) => Promise<{
+    invitation: {
+      id: string;
+      project_id: string;
+      email: string;
+      role: string;
+      invited_by_user_id: string | null;
+      status: string;
+    };
+    membership?: {
+      id: string;
+      project_id: string;
+      user_id: string;
+      role: string;
+    };
+  }>;
+  removeProjectMember?: (input: {
+    firebaseUid: string;
+    projectId: string;
+    membershipId: string;
+  }) => Promise<{
+    membership: {
+      id: string;
+      project_id: string;
+      user_id: string;
+      role: string;
+    } | null;
+  }>;
+  listProjectMindConfigs?: (input: {
+    firebaseUid: string;
+    projectId: string;
+  }) => Promise<{
+    role: string;
+    minds: Array<{
+      id: string;
+      project_id: string;
+      agent_id: string;
+      display_name: string;
+      icon: string;
+      blurb: string | null;
+      enabled: boolean;
+      prompt_override: string | null;
+    }>;
+  }>;
+  updateProjectMindConfig?: (input: {
+    firebaseUid: string;
+    projectId: string;
+    mindId: string;
+    displayName?: string;
+    icon?: string;
+    blurb?: string | null;
+    enabled?: boolean;
+    promptOverride?: string | null;
+  }) => Promise<{
+    mind: {
+      id: string;
+      project_id: string;
+      agent_id: string;
+      display_name: string;
+      icon: string;
+      blurb: string | null;
+      enabled: boolean;
+      prompt_override: string | null;
+    } | null;
   }>;
   listProjectChannels?: (input: {
     firebaseUid: string;
@@ -142,6 +285,10 @@ type AppFactoryParams = {
       description?: string | null;
       kind?: string;
       isPrivate?: boolean;
+    };
+    seedThread?: {
+      threadId: string;
+      channelId: string;
     };
   }>;
   listChannelFeed?: (input: {
@@ -184,6 +331,24 @@ type AppFactoryParams = {
       text: string;
       createdAt: string;
     };
+  }>;
+  searchChannelMessages?: (input: {
+    firebaseUid: string;
+    projectId: string;
+    query: string;
+    channelId?: string;
+    page?: number;
+  }) => Promise<{
+    results: Array<{
+      messageId: string;
+      threadId: string;
+      channelId: string;
+      channelName: string;
+      messageText: string;
+      threadTitle: string | null;
+      role: string;
+      createdAt: string;
+    }>;
   }>;
   listChannelThreads?: (input: {
     firebaseUid: string;
@@ -255,6 +420,7 @@ type AppFactoryParams = {
     channelId: string;
     threadId: string;
     message?: string;
+    agentId?: string;
   }) => AsyncIterable<StreamEvent> | Promise<AsyncIterable<StreamEvent>>;
   summarizeProjectDocs?: (
     input: {
@@ -431,12 +597,170 @@ export async function createApp(params: AppFactoryParams = {}) {
 
   const mastra = params.mastra ?? createMastra(process.env.DATABASE_URL ?? 'postgres://postgres:postgres@localhost:5432/hono_workspace');
   const mindspaceFactory = params.mindspaceFactory ?? createLocalMindspaceFactory();
-  const platformDeps = { mastra, mindspaceFactory };
+  const channelEventEmitter = params.channelEventEmitter ?? new ChannelEventEmitter();
+  const platformDeps = { mastra, mindspaceFactory, channelEventEmitter };
 
   app.route('/', healthRoutes);
   app.get('/ready', (c) => c.json({ ok: true }));
+  app.get('/api/projects/:projectId/channels/:channelId/events', async (c) => {
+    const token = c.req.query('token');
+    if (!token) {
+      return c.json({ error: 'Missing token query parameter' }, 401);
+    }
+
+    let principal: { uid: string; email: string | null; name: string | null };
+    try {
+      const decoded = await tokenVerifier.verifyIdToken(token);
+      principal = {
+        uid: decoded.uid,
+        email: decoded.email ?? null,
+        name: decoded.name ?? null,
+      };
+    } catch {
+      return c.json({ error: 'Invalid token' }, 401);
+    }
+
+    const projectId = c.req.param('projectId');
+    const channelId = c.req.param('channelId');
+    const access = await (params.listProjectChannels ?? listProjectChannelsForPrincipal)({
+      firebaseUid: principal.uid,
+      projectId,
+    });
+
+    if (!access.channels.some((channel) => channel.id === channelId)) {
+      return c.json({ error: 'Channel not found' }, 404);
+    }
+
+    const encoder = new TextEncoder();
+    let unsubscribe = () => {};
+    let heartbeat: ReturnType<typeof setInterval> | null = null;
+
+    return new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(
+            encoder.encode(`event: connected\ndata: ${JSON.stringify({ channelId })}\n\n`),
+          );
+
+          unsubscribe = channelEventEmitter.subscribe(channelId, (event) => {
+            controller.enqueue(
+              encoder.encode(`event: ${event.event}\ndata: ${JSON.stringify(event.data)}\n\n`),
+            );
+          });
+
+          heartbeat = setInterval(() => {
+            controller.enqueue(encoder.encode(`event: heartbeat\ndata: {}\n\n`));
+          }, 30_000);
+        },
+        cancel() {
+          unsubscribe();
+          if (heartbeat) {
+            clearInterval(heartbeat);
+          }
+        },
+      }),
+      {
+        headers: {
+          'content-type': 'text/event-stream; charset=utf-8',
+          'cache-control': 'no-cache, no-transform',
+          connection: 'keep-alive',
+        },
+      },
+    );
+  });
   app.use('/api/*', auth);
   app.route('/api', meRoutes);
+  app.get('/api/projects/:projectId/settings/general', async (c) => {
+    const principal = c.get('principal');
+    const result = await (params.getProjectSettingsGeneral ?? getProjectGeneralSettingsForPrincipal)({
+      firebaseUid: principal.uid,
+      projectId: c.req.param('projectId'),
+    });
+
+    return c.json(result);
+  });
+  app.patch('/api/projects/:projectId/settings/general', async (c) => {
+    const principal = c.get('principal');
+    const body = await c.req.json<{ name?: string }>();
+    const result = await (params.updateProjectSettingsGeneral ?? updateProjectGeneralSettingsForPrincipal)({
+      firebaseUid: principal.uid,
+      projectId: c.req.param('projectId'),
+      name: body.name ?? '',
+    });
+
+    return c.json(result);
+  });
+  app.post('/api/projects/:projectId/settings/archive', async (c) => {
+    const principal = c.get('principal');
+    const result = await (params.archiveProjectSettings ?? archiveProjectForPrincipal)({
+      firebaseUid: principal.uid,
+      projectId: c.req.param('projectId'),
+    });
+
+    return c.json(result);
+  });
+  app.get('/api/projects/:projectId/settings/members', async (c) => {
+    const principal = c.get('principal');
+    const result = await (params.listProjectSettingsMembers ?? listProjectSettingsMembersForPrincipal)({
+      firebaseUid: principal.uid,
+      projectId: c.req.param('projectId'),
+    });
+
+    return c.json(result);
+  });
+  app.post('/api/projects/:projectId/settings/members/invite', async (c) => {
+    const principal = c.get('principal');
+    const body = await c.req.json<{ email?: string; role?: string }>();
+    const result = await (params.inviteProjectMember ?? inviteProjectMemberForPrincipal)({
+      firebaseUid: principal.uid,
+      projectId: c.req.param('projectId'),
+      email: body.email ?? '',
+      role: body.role ?? 'member',
+    });
+
+    return c.json(result);
+  });
+  app.delete('/api/projects/:projectId/settings/members/:membershipId', async (c) => {
+    const principal = c.get('principal');
+    const result = await (params.removeProjectMember ?? removeProjectMemberForPrincipal)({
+      firebaseUid: principal.uid,
+      projectId: c.req.param('projectId'),
+      membershipId: c.req.param('membershipId'),
+    });
+
+    return c.json(result);
+  });
+  app.get('/api/projects/:projectId/settings/minds', async (c) => {
+    const principal = c.get('principal');
+    const result = await (params.listProjectMindConfigs ?? listProjectMindConfigsForPrincipal)({
+      firebaseUid: principal.uid,
+      projectId: c.req.param('projectId'),
+    });
+
+    return c.json(result);
+  });
+  app.patch('/api/projects/:projectId/settings/minds/:mindId', async (c) => {
+    const principal = c.get('principal');
+    const body = await c.req.json<{
+      displayName?: string;
+      icon?: string;
+      blurb?: string | null;
+      enabled?: boolean;
+      promptOverride?: string | null;
+    }>();
+    const result = await (params.updateProjectMindConfig ?? updateProjectMindConfigForPrincipal)({
+      firebaseUid: principal.uid,
+      projectId: c.req.param('projectId'),
+      mindId: c.req.param('mindId'),
+      ...(body.displayName !== undefined ? { displayName: body.displayName } : {}),
+      ...(body.icon !== undefined ? { icon: body.icon } : {}),
+      ...(body.blurb !== undefined ? { blurb: body.blurb } : {}),
+      ...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
+      ...(body.promptOverride !== undefined ? { promptOverride: body.promptOverride } : {}),
+    });
+
+    return c.json(result);
+  });
   app.get('/api/projects', async (c) => {
     const principal = c.get('principal');
     const result = await (params.listAccessibleProjects ?? listAccessibleProjectsForPrincipal)({
@@ -449,7 +773,7 @@ export async function createApp(params: AppFactoryParams = {}) {
   app.post('/api/dev/bootstrap-project', async (c) => {
     const principal = c.get('principal');
     const body = await c.req.json<{ name?: string }>();
-    const result = await (params.bootstrapProjectForPrincipal ?? bootstrapProjectForPrincipal)({
+    const result = await (params.bootstrapProjectForPrincipal ?? ((input) => bootstrapProjectForPrincipal(input, { mastra })))({
       uid: principal.uid,
       email: principal.email,
       name: principal.name,
@@ -633,7 +957,7 @@ export async function createApp(params: AppFactoryParams = {}) {
   app.post('/api/projects/:projectId/channels', async (c) => {
     const principal = c.get('principal');
     const body = await c.req.json<{ name?: string; description?: string }>();
-    const result = await (params.createProjectChannel ?? createProjectChannelForPrincipal)({
+    const result = await (params.createProjectChannel ?? ((input) => createProjectChannelForPrincipal(input, platformDeps)))({
       firebaseUid: principal.uid,
       projectId: c.req.param('projectId'),
       name: body.name ?? '',
@@ -649,6 +973,23 @@ export async function createApp(params: AppFactoryParams = {}) {
       firebaseUid: principal.uid,
       projectId: c.req.param('projectId'),
       channelId: c.req.param('channelId'),
+    });
+
+    return c.json(result);
+  });
+  app.get('/api/projects/:projectId/search', async (c) => {
+    const principal = c.get('principal');
+    const q = c.req.query('q') ?? '';
+    const channelId = c.req.query('channelId') ?? undefined;
+    const pageValue = c.req.query('page');
+    const parsedPage = pageValue ? Number.parseInt(pageValue, 10) : undefined;
+    const page = Number.isFinite(parsedPage) && (parsedPage ?? 0) >= 0 ? parsedPage : undefined;
+    const result = await (params.searchChannelMessages ?? searchChannelMessagesForPrincipal)({
+      firebaseUid: principal.uid,
+      projectId: c.req.param('projectId'),
+      query: q,
+      ...(channelId ? { channelId } : {}),
+      ...(page !== undefined ? { page } : {}),
     });
 
     return c.json(result);
@@ -718,13 +1059,14 @@ export async function createApp(params: AppFactoryParams = {}) {
   });
   app.post('/api/projects/:projectId/channels/:channelId/threads/:threadId/messages/stream', async (c) => {
     const principal = c.get('principal');
-    const body = await c.req.json<{ message?: string }>();
+    const body = await c.req.json<{ message?: string; agentId?: string }>();
     const streamInput = {
       firebaseUid: principal.uid,
       projectId: c.req.param('projectId'),
       channelId: c.req.param('channelId'),
       threadId: c.req.param('threadId'),
       ...(typeof body.message === 'string' ? { message: body.message } : {}),
+      ...(typeof body.agentId === 'string' ? { agentId: body.agentId } : {}),
     };
     const stream = await (params.streamChannelReply ??
       ((input) => streamChannelReplyForPrincipal(input, platformDeps)))(streamInput);

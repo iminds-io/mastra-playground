@@ -11,4 +11,12 @@ describe('database schema', () => {
     expect(tables).toContain('mindspace_bindings');
     expect(tables).toContain('mindspace_locks');
   });
+
+  it('contains the project settings foundation tables', async () => {
+    const tables = await listAppTables();
+
+    expect(tables).toContain('project_memberships');
+    expect(tables).toContain('project_invitations');
+    expect(tables).toContain('project_mind_configs');
+  });
 });

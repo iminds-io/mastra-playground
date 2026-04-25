@@ -1,10 +1,14 @@
+import type { Mastra } from '@mastra/core';
+
 import { parseEnv } from '../env';
 import { createOrganization, getOrganizationByFirebaseProjectId } from '../db/repositories/organizations';
 import { createProjectChannel } from '../db/repositories/project-channels';
 import { createProject } from '../db/repositories/projects';
+import { seedProjectMindConfigs } from '../db/repositories/project-mind-configs';
 import { upsertUser } from '../db/repositories/users';
-import { addOrganizationMembership } from '../db/repositories/memberships';
+import { addOrganizationMembership, addProjectMembership } from '../db/repositories/memberships';
 import { provisionMindspaceForProject } from '../mindspace/provisioning';
+import { createSeedThread } from './channel-seeding';
 
 function slugifyProjectName(name: string): string {
   return name
@@ -20,7 +24,7 @@ export async function bootstrapProjectForPrincipal(input: {
   email: string | null;
   name: string | null;
   projectName?: string;
-}) {
+}, deps?: { mastra?: Mastra }) {
   const env = parseEnv(process.env);
   const projectName = input.projectName?.trim() || 'Demo Project';
   const organization =
@@ -47,6 +51,12 @@ export async function bootstrapProjectForPrincipal(input: {
     name: projectName,
     slug: `${slugifyProjectName(projectName)}-${Date.now().toString(36)}`,
   });
+  await addProjectMembership({
+    projectId: project.id,
+    userId: user.id,
+    role: 'owner',
+  });
+  await seedProjectMindConfigs(project.id);
 
   const provisioned = await provisionMindspaceForProject({
     organizationId: organization.id,
@@ -65,6 +75,22 @@ export async function bootstrapProjectForPrincipal(input: {
     createdBy: user.id,
   });
 
+  let seedThread: { threadId: string; channelId: string } | undefined;
+  if (deps?.mastra) {
+    const storage = deps.mastra.getStorage();
+    const memoryStore = await storage?.getStore('memory');
+
+    if (memoryStore) {
+      seedThread = await createSeedThread({
+        channelId: defaultChannel.id,
+        channelName: 'general',
+        projectId: project.id,
+        memoryStore,
+        seedMessage: '@librarian Welcome! Give a brief orientation to this mindspace.',
+      });
+    }
+  }
+
   return {
     projectId: project.id,
     organizationId: organization.id,
@@ -81,5 +107,6 @@ export async function bootstrapProjectForPrincipal(input: {
       activeAgentRef: provisioned.binding.active_agent_ref,
       activeAgentVersion: provisioned.binding.active_agent_version,
     },
+    ...(seedThread ? { seedThread } : {}),
   };
 }

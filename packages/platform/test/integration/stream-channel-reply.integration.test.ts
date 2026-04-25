@@ -42,11 +42,14 @@ describe('streamChannelReplyForPrincipal', () => {
         openrouterModel: process.env.OPENROUTER_MODEL,
       });
 
-      const channel = await createProjectChannelForPrincipal({
-        firebaseUid: fixture.user.firebaseUid,
-        projectId: fixture.project.id,
-        name: 'general',
-      });
+      const channel = await createProjectChannelForPrincipal(
+        {
+          firebaseUid: fixture.user.firebaseUid,
+          projectId: fixture.project.id,
+          name: 'general',
+        },
+        { mastra, mindspaceFactory: fixture.mindspaceFactory },
+      );
 
       const post = await createChannelPostForPrincipal(
         {
