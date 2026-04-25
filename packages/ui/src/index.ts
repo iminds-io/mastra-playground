@@ -21,6 +21,9 @@ export type { BadgeProps } from './components/ui/badge';
 export { Input } from './components/ui/input';
 export type { InputProps } from './components/ui/input';
 
+export { Spinner } from './components/ui/spinner';
+export type { SpinnerProps } from './components/ui/spinner';
+
 export { Textarea } from './components/ui/textarea';
 export type { TextareaProps } from './components/ui/textarea';
 

@@ -45,6 +45,9 @@ describe('apiFetch', () => {
                     'event: token',
                     'data: {"text":"hello"}',
                     '',
+                    'event: done',
+                    'data: {"threadId":"thread-1"}',
+                    '',
                   ].join('\n'),
                 ),
               );
@@ -87,6 +90,12 @@ describe('apiFetch', () => {
         event: 'token',
         data: {
           text: 'hello',
+        },
+      },
+      {
+        event: 'done',
+        data: {
+          threadId: 'thread-1',
         },
       },
     ]);

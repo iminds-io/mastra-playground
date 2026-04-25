@@ -26,6 +26,10 @@ export type BootstrapProjectResponse = {
     activeAgentVersion: string;
   };
   defaultChannelId: string;
+  seedThread?: {
+    threadId: string;
+    channelId: string;
+  };
   project?: AccessibleProjectSummary;
 } & ResponseMeta;
 
@@ -71,6 +75,8 @@ export type ThreadMessage = {
   role: string;
   text: string;
   createdAt: string;
+  sendFailed?: boolean;
+  retryText?: string;
 };
 
 export type ThreadDetails = {
@@ -78,10 +84,80 @@ export type ThreadDetails = {
   messages: ThreadMessage[];
 } & ResponseMeta;
 
+export type SearchResult = {
+  messageId: string;
+  threadId: string;
+  channelId: string;
+  channelName: string;
+  messageText: string;
+  threadTitle: string | null;
+  role: string;
+  createdAt: string;
+};
+
+export type ProjectSettingsGeneral = {
+  role: string;
+  project: {
+    id: string;
+    organizationId: string;
+    name: string;
+    slug: string;
+    status: string;
+    createdAt: string;
+  };
+};
+
+export type ProjectSettingsMember = {
+  membershipId: string;
+  userId: string;
+  role: string;
+  displayName: string;
+  email: string | null;
+};
+
+export type ProjectSettingsInvitation = {
+  id: string;
+  email: string;
+  role: string;
+  status: string;
+};
+
+export type ProjectSettingsMembers = {
+  role: string;
+  members: ProjectSettingsMember[];
+  invitations: ProjectSettingsInvitation[];
+};
+
+export type ProjectMindConfig = {
+  id: string;
+  project_id: string;
+  agent_id: string;
+  display_name: string;
+  icon: string;
+  blurb: string | null;
+  enabled: boolean;
+  prompt_override: string | null;
+};
+
+export type ProjectSettingsMinds = {
+  role: string;
+  minds: ProjectMindConfig[];
+};
+
 export type StreamEvent = {
   event: string;
   data: Record<string, unknown>;
 };
+
+export class StreamInterruptedError extends Error {
+  partialText: string;
+
+  constructor(partialText: string) {
+    super('Stream interrupted before completion.');
+    this.name = 'StreamInterruptedError';
+    this.partialText = partialText;
+  }
+}
 
 async function buildHeaders(user: AuthUser, init?: HeadersInit) {
   const token = await user.getIdToken();
@@ -181,6 +257,116 @@ export async function listProjectChannels(user: AuthUser, projectId: string) {
   });
 }
 
+export async function getProjectSettingsGeneral(user: AuthUser, projectId: string) {
+  return apiFetch<ProjectSettingsGeneral & ResponseMeta>(`/api/projects/${projectId}/settings/general`, user, {
+    method: 'GET',
+  });
+}
+
+export async function updateProjectSettingsGeneral(
+  user: AuthUser,
+  projectId: string,
+  input: { name: string },
+) {
+  return apiFetch<{
+    project: {
+      id: string;
+      organizationId: string;
+      name: string;
+      slug: string;
+      status: string;
+    };
+  } & ResponseMeta>(`/api/projects/${projectId}/settings/general`, user, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function archiveProjectSettings(user: AuthUser, projectId: string) {
+  return apiFetch<{
+    project: {
+      id: string;
+      organizationId: string;
+      name: string;
+      slug: string;
+      status: string;
+    };
+  } & ResponseMeta>(`/api/projects/${projectId}/settings/archive`, user, {
+    method: 'POST',
+  });
+}
+
+export async function listProjectSettingsMembers(user: AuthUser, projectId: string) {
+  return apiFetch<ProjectSettingsMembers & ResponseMeta>(`/api/projects/${projectId}/settings/members`, user, {
+    method: 'GET',
+  });
+}
+
+export async function inviteProjectMember(
+  user: AuthUser,
+  projectId: string,
+  input: { email: string; role: string },
+) {
+  return apiFetch<{
+    invitation: {
+      id: string;
+      project_id: string;
+      email: string;
+      role: string;
+      invited_by_user_id: string | null;
+      status: string;
+    };
+    membership?: {
+      id: string;
+      project_id: string;
+      user_id: string;
+      role: string;
+    };
+  } & ResponseMeta>(`/api/projects/${projectId}/settings/members/invite`, user, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function removeProjectMember(user: AuthUser, projectId: string, membershipId: string) {
+  return apiFetch<{
+    membership: {
+      id: string;
+      project_id: string;
+      user_id: string;
+      role: string;
+    } | null;
+  } & ResponseMeta>(`/api/projects/${projectId}/settings/members/${membershipId}`, user, {
+    method: 'DELETE',
+  });
+}
+
+export async function listProjectMindConfigs(user: AuthUser, projectId: string) {
+  return apiFetch<ProjectSettingsMinds & ResponseMeta>(`/api/projects/${projectId}/settings/minds`, user, {
+    method: 'GET',
+  });
+}
+
+export async function updateProjectMindConfig(
+  user: AuthUser,
+  projectId: string,
+  mindId: string,
+  input: {
+    displayName?: string;
+    icon?: string;
+    blurb?: string | null;
+    enabled?: boolean;
+    promptOverride?: string | null;
+  },
+) {
+  return apiFetch<{
+    mind: ProjectMindConfig | null;
+  } & ResponseMeta>(`/api/projects/${projectId}/settings/minds/${mindId}`, user, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
 export async function createProjectChannel(
   user: AuthUser,
   projectId: string,
@@ -189,6 +375,10 @@ export async function createProjectChannel(
 ) {
   return apiFetch<{
     channel: ChannelSummary;
+    seedThread?: {
+      threadId: string;
+      channelId: string;
+    };
   } & ResponseMeta>(`/api/projects/${projectId}/channels`, user, {
     method: 'POST',
     body: JSON.stringify({ name, description }),
@@ -219,6 +409,27 @@ export async function createChannelPost(
   });
 }
 
+export async function searchMessages(
+  user: AuthUser,
+  projectId: string,
+  query: string,
+  options?: { channelId?: string; page?: number },
+) {
+  const params = new URLSearchParams({ q: query });
+  if (options?.channelId) {
+    params.set('channelId', options.channelId);
+  }
+  if (options?.page !== undefined && options.page > 0) {
+    params.set('page', String(options.page));
+  }
+
+  return apiFetch<{
+    results: SearchResult[];
+  } & ResponseMeta>(`/api/projects/${projectId}/search?${params}`, user, {
+    method: 'GET',
+  });
+}
+
 export async function getChannelThread(
   user: AuthUser,
   projectId: string,
@@ -243,6 +454,7 @@ export async function streamThreadReply(
   handlers: {
     onEvent(event: StreamEvent): void;
   },
+  agentId?: string,
 ) {
   const response = await fetch(
     `/api/projects/${projectId}/channels/${channelId}/threads/${threadId}/messages/stream`,
@@ -252,7 +464,10 @@ export async function streamThreadReply(
         ...(await buildHeaders(user)),
         'content-type': 'application/json',
       },
-      body: JSON.stringify(typeof message === 'string' ? { message } : {}),
+      body: JSON.stringify({
+        ...(typeof message === 'string' ? { message } : {}),
+        ...(agentId ? { agentId } : {}),
+      }),
     },
   );
 
@@ -272,6 +487,8 @@ export async function streamThreadReply(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  let partialText = '';
+  let sawDone = false;
 
   while (true) {
     const chunk = await reader.read();
@@ -288,6 +505,15 @@ export async function streamThreadReply(
       const event = parseEventBlock(block);
 
       if (event) {
+        if (event.event === 'token') {
+          partialText += String(event.data.text ?? '');
+        }
+        if (event.event === 'done') {
+          sawDone = true;
+        }
+        if (event.event === 'error') {
+          throw new StreamInterruptedError(partialText);
+        }
         handlers.onEvent(event);
       }
     }
@@ -296,6 +522,16 @@ export async function streamThreadReply(
   const trailingEvent = parseEventBlock(buffer.trim());
 
   if (trailingEvent) {
+    if (trailingEvent.event === 'token') {
+      partialText += String(trailingEvent.data.text ?? '');
+    }
+    if (trailingEvent.event === 'done') {
+      sawDone = true;
+    }
     handlers.onEvent(trailingEvent);
+  }
+
+  if (!sawDone) {
+    throw new StreamInterruptedError(partialText);
   }
 }

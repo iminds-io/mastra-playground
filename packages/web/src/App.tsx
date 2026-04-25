@@ -1,25 +1,56 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { Badge, Button, Card, Input, cn, Textarea } from '@mastra-mindspace/ui';
+import { cn } from '@mastra-mindspace/ui';
 
 import {
+  archiveProjectSettings,
   bootstrapProject,
   createChannelPost,
   createProjectChannel,
   getChannelThread,
   getMe,
+  getProjectSettingsGeneral,
+  inviteProjectMember,
   listAccessibleProjects,
   listChannelFeed,
+  listProjectMindConfigs,
   listProjectChannels,
+  listProjectSettingsMembers,
+  removeProjectMember,
   runAdminTest,
+  searchMessages,
+  StreamInterruptedError,
   streamThreadReply,
+  updateProjectMindConfig,
+  updateProjectSettingsGeneral,
   type AccessibleProjectSummary,
   type ChannelFeedPost,
   type ChannelSummary,
+  type ProjectSettingsGeneral,
+  type ProjectSettingsMembers,
+  type ProjectSettingsMinds,
+  type SearchResult,
   type ThreadMessage,
   type ThreadSummary,
 } from './api';
 import { auth, onAuthStateChanged, signInWithEmailPassword, signInWithGoogle, signOutUser } from './firebase';
+import { AdminConsole } from './AdminConsole';
+import { ConnectionBanner } from './ConnectionBanner';
+import { MobileTopBar } from './MobileTopBar';
+import { PostAuthRouter } from './PostAuthRouter';
+import { SettingsModal } from './SettingsModal';
+import { SignIn } from './SignIn';
+import { Sidebar } from './Sidebar';
+import { STUB_MINDS, STUB_TEAMMATES } from './sidebar-stubs';
+import { ChannelFeed } from './ChannelFeed';
+import type { SearchScope } from './SearchOverlay';
+import { ThreadDrawer } from './ThreadDrawer';
+import { humanizeError } from './humanizeError';
+import { Route, navigate, useRoute } from './router';
+import { useChannelEvents } from './useChannelEvents';
+import { useConnectionStatus } from './useConnectionStatus';
+import { useMobileNav } from './useMobileNav';
+import { useTheme } from './useTheme';
 import './styles.css';
 
 type AuthUser = {
@@ -27,33 +58,6 @@ type AuthUser = {
   email: string | null;
   getIdToken(): Promise<string>;
 };
-
-type RouteState =
-  | {
-      name: 'chat';
-      projectId: string;
-    }
-  | {
-      name: 'admin';
-    };
-
-function readRoute(pathname: string): RouteState {
-  const match = pathname.match(/^\/chat\/([^/]+)$/);
-
-  if (match?.[1]) {
-    return {
-      name: 'chat',
-      projectId: decodeURIComponent(match[1]),
-    };
-  }
-
-  return { name: 'admin' };
-}
-
-function navigate(path: string) {
-  window.history.pushState({}, '', path);
-  window.dispatchEvent(new PopStateEvent('popstate'));
-}
 
 function mergeProjects(
   current: AccessibleProjectSummary[],
@@ -72,12 +76,10 @@ function mergeProjects(
   return [...map.values()].sort((left, right) => left.name.localeCompare(right.name));
 }
 
-function formatJson(value: unknown, fallback: string) {
-  return value ? JSON.stringify(value, null, 2) : fallback;
-}
+function getChatProjectId(path: string): string | null {
+  const match = path.match(/^\/chat\/([^/]+)$/);
 
-function formatReplyCount(replyCount: number) {
-  return `${replyCount} ${replyCount === 1 ? 'reply' : 'replies'}`;
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
 }
 
 function createOptimisticMessage(role: 'user' | 'assistant', text: string): ThreadMessage {
@@ -89,17 +91,39 @@ function createOptimisticMessage(role: 'user' | 'assistant', text: string): Thre
   };
 }
 
+function deriveInitials(name: string | null, email: string | null): string {
+  if (name) {
+    const parts = name.trim().split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) {
+      return `${parts[0]![0]}${parts[parts.length - 1]![0]}`.toUpperCase();
+    }
+    return name.slice(0, 2).toUpperCase();
+  }
+
+  if (email) {
+    return email.slice(0, 2).toUpperCase();
+  }
+
+  return '??';
+}
+
 export function App() {
-  const [route, setRoute] = useState<RouteState>(() => readRoute(window.location.pathname));
+  const route = useRoute();
+  const activeProjectId = getChatProjectId(route.path);
+  const { preference: themePreference, cycle: cycleTheme } = useTheme();
+  const { status: connectionStatus, reportFailure, reportSuccess } = useConnectionStatus();
+  const mobileNav = useMobileNav();
   const [user, setUser] = useState<AuthUser | null>(null);
   const [projectName, setProjectName] = useState('Demo Project');
   const [projectId, setProjectId] = useState('');
   const [adminMessage, setAdminMessage] = useState('hello');
   const [meResult, setMeResult] = useState('');
+  const [meName, setMeName] = useState<string | null>(null);
   const [mindspaceResult, setMindspaceResult] = useState('');
   const [adminResult, setAdminResult] = useState('');
-  const [lastError, setLastError] = useState('');
-  const [isLoading, setIsLoading] = useState<string | null>(null);
+  const [loadingOps, setLoadingOps] = useState<Set<string>>(() => new Set());
+  const [errors, setErrors] = useState<Map<string, string>>(() => new Map());
+  const errorTimeoutsRef = useRef<Map<string, number>>(new Map());
 
   // Dev-only test-credentials sign-in. Pre-fill from Vite env vars so the
   // buttons can authenticate against a deployed worker via the dev-server proxy
@@ -115,27 +139,91 @@ export function App() {
   const [projects, setProjects] = useState<AccessibleProjectSummary[]>([]);
   const [channels, setChannels] = useState<ChannelSummary[]>([]);
   const [selectedChannelId, setSelectedChannelId] = useState('');
-  const [newChannelName, setNewChannelName] = useState('engineering');
   const [feedPosts, setFeedPosts] = useState<ChannelFeedPost[]>([]);
   const [newPostMessage, setNewPostMessage] = useState('');
+  const [pendingSeedThread, setPendingSeedThread] = useState<{ threadId: string; channelId: string } | null>(null);
+  const [pendingThreadSelection, setPendingThreadSelection] = useState<{
+    threadId: string;
+    channelId: string;
+    messageId?: string;
+  } | null>(null);
   const [selectedThread, setSelectedThread] = useState<ThreadSummary | null>(null);
   const [threadMessages, setThreadMessages] = useState<ThreadMessage[]>([]);
+  const [pendingScrollMessageId, setPendingScrollMessageId] = useState<string | null>(null);
   const [replyMessage, setReplyMessage] = useState('');
   const [streamingReply, setStreamingReply] = useState('');
+  const [interruptedNotice, setInterruptedNotice] = useState<string | undefined>(undefined);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchScope, setSearchScope] = useState<SearchScope>('channel');
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [streamingMinds, setStreamingMinds] = useState<Record<string, string>>({});
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settingsGeneral, setSettingsGeneral] = useState<ProjectSettingsGeneral | null>(null);
+  const [settingsMembers, setSettingsMembers] = useState<ProjectSettingsMembers | null>(null);
+  const [settingsMinds, setSettingsMinds] = useState<ProjectSettingsMinds | null>(null);
+  const searchRequestIdRef = useRef(0);
 
   const selectedChannel = useMemo(
     () => channels.find((channel) => channel.id === selectedChannelId) ?? null,
     [channels, selectedChannelId],
   );
 
-  useEffect(() => {
-    const handlePopState = () => {
-      setRoute(readRoute(window.location.pathname));
-    };
+  function startLoading(op: string) {
+    setLoadingOps((current) => new Set(current).add(op));
+  }
 
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
+  function stopLoading(op: string) {
+    setLoadingOps((current) => {
+      const next = new Set(current);
+      next.delete(op);
+      return next;
+    });
+  }
+
+  function isLoadingOp(op: string) {
+    return loadingOps.has(op);
+  }
+
+  function setError(scope: string, message: string) {
+    const existingTimeout = errorTimeoutsRef.current.get(scope);
+    if (existingTimeout) {
+      window.clearTimeout(existingTimeout);
+    }
+
+    setErrors((current) => new Map(current).set(scope, message));
+
+    const timeoutId = window.setTimeout(() => {
+      setErrors((current) => {
+        const next = new Map(current);
+        next.delete(scope);
+        return next;
+      });
+      errorTimeoutsRef.current.delete(scope);
+    }, 8000);
+
+    errorTimeoutsRef.current.set(scope, timeoutId);
+  }
+
+  function clearError(scope: string) {
+    const existingTimeout = errorTimeoutsRef.current.get(scope);
+    if (existingTimeout) {
+      window.clearTimeout(existingTimeout);
+      errorTimeoutsRef.current.delete(scope);
+    }
+
+    setErrors((current) => {
+      const next = new Map(current);
+      next.delete(scope);
+      return next;
+    });
+  }
+
+  function reportScopedError(scope: string, error: unknown) {
+    reportFailure();
+    setError(scope, humanizeError(error));
+  }
 
   useEffect(() => {
     return onAuthStateChanged(auth, (nextUser) => {
@@ -146,6 +234,7 @@ export function App() {
   useEffect(() => {
     if (!user) {
       setMeResult('');
+      setMeName(null);
       setProjects([]);
       setChannels([]);
       setFeedPosts([]);
@@ -159,44 +248,240 @@ export function App() {
   }, [user]);
 
   useEffect(() => {
-    if (route.name !== 'chat') {
-      return;
-    }
+    return () => {
+      for (const timeoutId of errorTimeoutsRef.current.values()) {
+        window.clearTimeout(timeoutId);
+      }
+      errorTimeoutsRef.current.clear();
+    };
+  }, []);
 
-    setProjectId(route.projectId);
+  useEffect(() => {
+    setProjectId(activeProjectId ?? '');
     setSelectedThread(null);
     setThreadMessages([]);
     setStreamingReply('');
-  }, [route]);
+    setPendingScrollMessageId(null);
+    setInterruptedNotice(undefined);
+    setPendingThreadSelection(null);
+    setIsSearchOpen(false);
+    setSearchQuery('');
+    setSearchResults([]);
+    setIsSearching(false);
+    setStreamingMinds({});
+    setSettingsGeneral(null);
+    setSettingsMembers(null);
+    setSettingsMinds(null);
+    searchRequestIdRef.current += 1;
+    mobileNav.resetStack();
+  }, [activeProjectId]);
 
   useEffect(() => {
-    if (!user || route.name !== 'chat' || !route.projectId) {
+    if (!user || !activeProjectId) {
       return;
     }
 
-    void handleLoadChannels(route.projectId);
-  }, [user, route]);
+    void handleLoadChannels(activeProjectId);
+  }, [user, activeProjectId]);
 
   useEffect(() => {
-    if (!user || route.name !== 'chat' || !route.projectId || !selectedChannelId) {
+    if (!user || !activeProjectId || !selectedChannelId) {
       return;
     }
 
     setSelectedThread(null);
     setThreadMessages([]);
     setStreamingReply('');
-    void handleLoadFeed(route.projectId, selectedChannelId);
-  }, [user, route, selectedChannelId]);
+    setPendingScrollMessageId(null);
+    setInterruptedNotice(undefined);
+    setPendingThreadSelection(null);
+    setSearchResults([]);
+    setSearchQuery('');
+    setIsSearchOpen(false);
+    setStreamingMinds({});
+    searchRequestIdRef.current += 1;
+    mobileNav.resetStack();
+    void handleLoadFeed(activeProjectId, selectedChannelId);
+  }, [user, activeProjectId, selectedChannelId]);
+
+  useEffect(() => {
+    if (!isSearchOpen || !user || !activeProjectId) {
+      return;
+    }
+
+    const trimmedQuery = searchQuery.trim();
+    if (!trimmedQuery) {
+      setSearchResults([]);
+      setIsSearching(false);
+      return;
+    }
+
+    const requestId = ++searchRequestIdRef.current;
+    const timeoutId = window.setTimeout(() => {
+      setIsSearching(true);
+      void searchMessages(
+        user,
+        activeProjectId,
+        trimmedQuery,
+        searchScope === 'channel' && selectedChannelId ? { channelId: selectedChannelId } : undefined,
+      )
+        .then((result) => {
+          if (searchRequestIdRef.current !== requestId) {
+            return;
+          }
+          setSearchResults(result.results);
+        })
+        .catch((error) => {
+          if (searchRequestIdRef.current !== requestId) {
+            return;
+          }
+          setError('feed', String(error));
+          setSearchResults([]);
+        })
+        .finally(() => {
+          if (searchRequestIdRef.current === requestId) {
+            setIsSearching(false);
+          }
+        });
+    }, 300);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [isSearchOpen, user, activeProjectId, searchQuery, searchScope, selectedChannelId]);
+
+  useEffect(() => {
+    if (!user || !activeProjectId || !pendingSeedThread || selectedChannelId !== pendingSeedThread.channelId) {
+      return;
+    }
+
+    void handleOpenThread(pendingSeedThread.threadId).then(() => {
+      void runThreadStream({
+        threadId: pendingSeedThread.threadId,
+        channelId: pendingSeedThread.channelId,
+        agentId: 'librarian',
+      }).catch((error) => {
+        setError('thread', humanizeError(error));
+      });
+      setPendingSeedThread(null);
+    });
+  }, [user, activeProjectId, selectedChannelId, pendingSeedThread]);
+
+  useEffect(() => {
+    if (!user || !activeProjectId || !pendingThreadSelection || selectedChannelId !== pendingThreadSelection.channelId) {
+      return;
+    }
+
+    void handleOpenThread(pendingThreadSelection.threadId, pendingThreadSelection.channelId).then(() => {
+      if (pendingThreadSelection.messageId) {
+        setPendingScrollMessageId(pendingThreadSelection.messageId);
+      }
+      setPendingThreadSelection(null);
+    });
+  }, [user, activeProjectId, selectedChannelId, pendingThreadSelection]);
+
+  useEffect(() => {
+    if (!pendingScrollMessageId) {
+      return;
+    }
+
+    const target = document.querySelector<HTMLElement>(`[data-message-id="${pendingScrollMessageId}"]`);
+    if (!target) {
+      return;
+    }
+
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setPendingScrollMessageId(null);
+  }, [pendingScrollMessageId, threadMessages]);
+
+  useChannelEvents({
+    user,
+    projectId: activeProjectId,
+    channelId: selectedChannelId || null,
+    handlers: useMemo(
+      () => ({
+        new_thread: (data) => {
+          setFeedPosts((current) => [
+            {
+              threadId: data.thread.id,
+              rootMessageId: data.rootMessage.id,
+              rootMessageText: data.rootMessage.text,
+              rootMessageRole: data.rootMessage.role,
+              replyCount: 0,
+              lastMessageAt: data.thread.lastMessageAt,
+              createdAt: data.rootMessage.createdAt,
+            },
+            ...current.filter((post) => post.threadId !== data.thread.id),
+          ]);
+        },
+        new_message: (data) => {
+          if (selectedThread?.id !== data.threadId) {
+            return;
+          }
+
+          setThreadMessages((current) =>
+            current.some((message) => message.id === data.message.id) ? current : [...current, data.message],
+          );
+        },
+        thread_updated: (data) => {
+          setFeedPosts((current) =>
+            current.map((post) =>
+              post.threadId === data.threadId
+                ? {
+                    ...post,
+                    lastMessageAt: data.lastMessageAt,
+                    replyCount: data.replyCount,
+                  }
+                : post,
+            ),
+          );
+          setSelectedThread((current) =>
+            current && current.id === data.threadId
+              ? {
+                  ...current,
+                  lastMessageAt: data.lastMessageAt,
+                  updatedAt: data.lastMessageAt,
+                }
+              : current,
+          );
+        },
+        mind_streaming: (data) => {
+          setStreamingMinds((current) => {
+            const next = { ...current };
+            if (data.status === 'started') {
+              next[data.threadId] = data.mindName;
+            } else {
+              delete next[data.threadId];
+            }
+            return next;
+          });
+        },
+      }),
+      [selectedThread?.id],
+    ),
+  });
 
   async function handleTestSignIn() {
-    setIsLoading('test-sign-in');
-    setLastError('');
+    startLoading('test-sign-in');
+    clearError('admin');
     try {
       await signInWithEmailPassword(testEmail, testPassword);
     } catch (error) {
-      setLastError(String(error));
+      setError('admin', String(error));
     } finally {
-      setIsLoading(null);
+      stopLoading('test-sign-in');
+    }
+  }
+
+  async function handleSignInWithGoogle() {
+    startLoading('sign-in');
+    clearError('auth');
+    try {
+      await signInWithGoogle();
+    } catch (error) {
+      setError('auth', String(error));
+    } finally {
+      stopLoading('sign-in');
     }
   }
 
@@ -205,15 +490,17 @@ export function App() {
       return;
     }
 
-    setIsLoading('me');
-    setLastError('');
+    startLoading('me');
+    clearError('admin');
     try {
       const result = await getMe(user);
+      setMeName(result.name ?? null);
       setMeResult(JSON.stringify(result, null, 2));
+      reportSuccess();
     } catch (error) {
-      setLastError(String(error));
+      reportScopedError('admin', error);
     } finally {
-      setIsLoading(null);
+      stopLoading('me');
     }
   }
 
@@ -222,15 +509,40 @@ export function App() {
       return;
     }
 
-    setIsLoading('projects');
-    setLastError('');
+    startLoading('projects');
+    clearError('admin');
     try {
       const result = await listAccessibleProjects(user);
       setProjects((current) => mergeProjects(current, result.projects));
+      reportSuccess();
     } catch (error) {
-      setLastError(String(error));
+      reportScopedError('admin', error);
     } finally {
-      setIsLoading(null);
+      stopLoading('projects');
+    }
+  }
+
+  async function loadSettings(projectId: string) {
+    if (!user) {
+      return;
+    }
+
+    startLoading('settings');
+    clearError('settings');
+    try {
+      const [general, members, minds] = await Promise.all([
+        getProjectSettingsGeneral(user, projectId),
+        listProjectSettingsMembers(user, projectId),
+        listProjectMindConfigs(user, projectId),
+      ]);
+      setSettingsGeneral(general);
+      setSettingsMembers(members);
+      setSettingsMinds(minds);
+      reportSuccess();
+    } catch (error) {
+      reportScopedError('settings', error);
+    } finally {
+      stopLoading('settings');
     }
   }
 
@@ -239,20 +551,24 @@ export function App() {
       return;
     }
 
-    setIsLoading('bootstrap');
-    setLastError('');
+    startLoading('bootstrap');
+    clearError('admin');
     try {
       const result = await bootstrapProject(user, projectName);
       const bootstrappedProject = result.project;
       setProjectId(result.projectId);
       setMindspaceResult(JSON.stringify(result, null, 2));
+      if (result.seedThread) {
+        setPendingSeedThread(result.seedThread);
+      }
       if (bootstrappedProject) {
         setProjects((current) => mergeProjects(current, [bootstrappedProject]));
       }
+      reportSuccess();
     } catch (error) {
-      setLastError(String(error));
+      reportScopedError('admin', error);
     } finally {
-      setIsLoading(null);
+      stopLoading('bootstrap');
     }
   }
 
@@ -261,15 +577,16 @@ export function App() {
       return;
     }
 
-    setIsLoading('admin-test');
-    setLastError('');
+    startLoading('admin-test');
+    clearError('admin');
     try {
       const result = await runAdminTest(user, projectId, adminMessage);
       setAdminResult(JSON.stringify(result, null, 2));
+      reportSuccess();
     } catch (error) {
-      setLastError(String(error));
+      reportScopedError('admin', error);
     } finally {
-      setIsLoading(null);
+      stopLoading('admin-test');
     }
   }
 
@@ -278,8 +595,8 @@ export function App() {
       return;
     }
 
-    setIsLoading('channels');
-    setLastError('');
+    startLoading('channels');
+    clearError('channels');
     try {
       const result = await listProjectChannels(user, nextProjectId);
       setChannels(result.channels);
@@ -290,35 +607,53 @@ export function App() {
 
         return result.channels[0]?.id ?? '';
       });
+      reportSuccess();
     } catch (error) {
-      setLastError(String(error));
+      reportScopedError('channels', error);
     } finally {
-      setIsLoading(null);
+      stopLoading('channels');
     }
   }
 
-  async function handleCreateChannel() {
-    if (!user || route.name !== 'chat' || !route.projectId || !newChannelName.trim()) {
+  async function handleCreateChannel(name: string) {
+    if (!user || !activeProjectId || !name.trim()) {
       return;
     }
 
-    setIsLoading('create-channel');
-    setLastError('');
+    startLoading('create-channel');
+    clearError('channels');
     try {
-      const result = await createProjectChannel(user, route.projectId, newChannelName.trim());
+      const result = await createProjectChannel(user, activeProjectId, name.trim());
       setChannels((current) =>
         [...current, result.channel].sort((left, right) => left.name.localeCompare(right.name)),
       );
       setSelectedChannelId(result.channel.id);
       setFeedPosts([]);
-      setSelectedThread(null);
-      setThreadMessages([]);
-      setStreamingReply('');
-      setNewChannelName('');
+      if (result.seedThread) {
+        const threadResult = await getChannelThread(
+          user,
+          activeProjectId,
+          result.channel.id,
+          result.seedThread.threadId,
+        );
+        setSelectedThread(threadResult.thread);
+        setThreadMessages(threadResult.messages);
+        setStreamingReply('');
+        await runThreadStream({
+          threadId: result.seedThread.threadId,
+          channelId: result.channel.id,
+          agentId: 'librarian',
+        });
+      } else {
+        setSelectedThread(null);
+        setThreadMessages([]);
+        setStreamingReply('');
+      }
+      reportSuccess();
     } catch (error) {
-      setLastError(String(error));
+      reportScopedError('channels', error);
     } finally {
-      setIsLoading(null);
+      stopLoading('create-channel');
     }
   }
 
@@ -327,39 +662,47 @@ export function App() {
       return;
     }
 
-    setIsLoading('feed');
-    setLastError('');
+    startLoading('feed');
+    clearError('feed');
     try {
       const result = await listChannelFeed(user, nextProjectId, channelId);
       setFeedPosts(result.posts);
+      reportSuccess();
     } catch (error) {
-      setLastError(String(error));
+      reportScopedError('feed', error);
     } finally {
-      setIsLoading(null);
+      stopLoading('feed');
     }
   }
 
-  async function handleOpenThread(threadId: string) {
-    if (!user || route.name !== 'chat' || !route.projectId || !selectedChannelId) {
+  async function handleOpenThread(threadId: string, channelIdOverride?: string) {
+    if (!user || !activeProjectId) {
       return;
     }
 
-    setIsLoading('thread');
-    setLastError('');
+    const channelId = channelIdOverride ?? selectedChannelId;
+    if (!channelId) {
+      return;
+    }
+
+    startLoading('thread');
+    clearError('thread');
     try {
-      const result = await getChannelThread(user, route.projectId, selectedChannelId, threadId);
+      const result = await getChannelThread(user, activeProjectId, channelId, threadId);
       setSelectedThread(result.thread);
       setThreadMessages(result.messages);
       setStreamingReply('');
+      setInterruptedNotice(undefined);
+      reportSuccess();
     } catch (error) {
-      setLastError(String(error));
+      reportScopedError('thread', error);
     } finally {
-      setIsLoading(null);
+      stopLoading('thread');
     }
   }
 
   async function handleCreatePost() {
-    if (!user || route.name !== 'chat' || !route.projectId || !selectedChannelId) {
+    if (!user || !activeProjectId || !selectedChannelId) {
       return;
     }
 
@@ -369,10 +712,10 @@ export function App() {
       return;
     }
 
-    setIsLoading('create-post');
-    setLastError('');
+    startLoading('create-post');
+    clearError('feed');
     try {
-      const result = await createChannelPost(user, route.projectId, selectedChannelId, message);
+      const result = await createChannelPost(user, activeProjectId, selectedChannelId, message);
       setFeedPosts((current) => [
         {
           threadId: result.thread.id,
@@ -391,10 +734,11 @@ export function App() {
         threadId: result.thread.id,
         channelId: selectedChannelId,
       });
+      reportSuccess();
     } catch (error) {
-      setLastError(String(error));
+      setError('feed', humanizeError(error));
     } finally {
-      setIsLoading(null);
+      stopLoading('create-post');
     }
   }
 
@@ -402,15 +746,16 @@ export function App() {
     threadId: string;
     channelId: string;
     message?: string;
+    agentId?: string;
   }) {
-    if (!user || route.name !== 'chat' || !route.projectId) {
+    if (!user || !activeProjectId) {
       return;
     }
 
     try {
       await streamThreadReply(
         user,
-        route.projectId,
+        activeProjectId,
         input.channelId,
         input.threadId,
         input.message,
@@ -463,17 +808,25 @@ export function App() {
 
             if (event.event === 'done') {
               setStreamingReply('');
+              setInterruptedNotice(undefined);
             }
           },
         },
+        input.agentId,
       );
+      reportSuccess();
     } catch (error) {
-      setLastError(String(error));
+      reportFailure();
+      if (error instanceof StreamInterruptedError) {
+        setInterruptedNotice('The reply was interrupted before completion.');
+        setStreamingReply(error.partialText);
+      }
+      throw error;
     }
   }
 
   async function handleReplyInThread() {
-    if (!user || route.name !== 'chat' || !route.projectId || !selectedChannelId || !selectedThread) {
+    if (!user || !activeProjectId || !selectedChannelId || !selectedThread) {
       return;
     }
 
@@ -483,11 +836,16 @@ export function App() {
       return;
     }
 
-    setIsLoading('reply');
-    setLastError('');
-    setThreadMessages((current) => [...current, createOptimisticMessage('user', message)]);
+    startLoading('reply');
+    clearError('thread');
+    const optimisticMessage = {
+      ...createOptimisticMessage('user', message),
+      retryText: message,
+    };
+    setThreadMessages((current) => [...current, optimisticMessage]);
     setReplyMessage('');
     setStreamingReply('');
+    setInterruptedNotice(undefined);
 
     try {
       await runThreadStream({
@@ -495,332 +853,483 @@ export function App() {
         channelId: selectedChannelId,
         message,
       });
+      reportSuccess();
+    } catch (error) {
+      setThreadMessages((current) =>
+        current.map((entry) =>
+          entry.id === optimisticMessage.id
+            ? {
+                ...entry,
+                sendFailed: true,
+                retryText: message,
+              }
+            : entry,
+        ),
+      );
+      setError('thread', humanizeError(error));
     } finally {
-      setIsLoading(null);
+      stopLoading('reply');
     }
   }
 
-  if (route.name === 'chat') {
-    return (
-      <main className="mindspace-shell">
-        <aside className="sidebar">
-          <div className="sidebar-brand">
-            <p className="eyebrow">Mastra Mindspace</p>
-            <h1>Mindspaces</h1>
-          </div>
+  const userDisplayName = meName ?? user?.email ?? 'Unknown User';
+  const userInitials = deriveInitials(meName, user?.email ?? null);
 
-          <nav className="mindspace-list" aria-label="Projects">
-            {projects.map((project) => (
-              <div key={project.id}>
-                <button
-                  className={project.id === route.projectId ? 'mindspace-button mindspace-button-active' : 'mindspace-button'}
-                  onClick={() => navigate(`/chat/${project.id}`)}
-                >
-                  <span className="mindspace-button-name">{project.name}</span>
-                  <span className="mindspace-button-slug">{project.slug}</span>
-                </button>
+  async function handleSelectSearchResult(result: SearchResult) {
+    setIsSearchOpen(false);
+    setSearchQuery('');
+    setSearchResults([]);
+    setIsSearching(false);
 
-                {project.id === route.projectId && (
-                  <div className="mindspace-channels">
-                    <nav className="channel-list" aria-label="Channels">
-                      {channels.map((channel) => (
-                        <button
-                          key={channel.id}
-                          className={channel.id === selectedChannelId ? 'channel-button channel-button-active' : 'channel-button'}
-                          onClick={() => setSelectedChannelId(channel.id)}
-                        >
-                          <span className="channel-hash">#</span>
-                          <span>{channel.name}</span>
-                        </button>
-                      ))}
-                    </nav>
+    if (result.channelId !== selectedChannelId) {
+      setPendingThreadSelection({
+        threadId: result.threadId,
+        channelId: result.channelId,
+        messageId: result.messageId,
+      });
+      setSelectedChannelId(result.channelId);
+      return;
+    }
 
-                    <div className="mindspace-channels-actions">
-                      <Input
-                        value={newChannelName}
-                        onChange={(event) => setNewChannelName(event.target.value)}
-                        placeholder="new channel"
-                        aria-label="New channel name"
-                      />
-                      <Button
-                        onClick={() => void handleCreateChannel()}
-                        disabled={!user || !route.projectId || isLoading === 'create-channel'}
-                        size="sm"
-                      >
-                        Add
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ))}
-          </nav>
+    setPendingScrollMessageId(result.messageId);
+    await handleOpenThread(result.threadId, result.channelId);
+  }
 
-          <div className="sidebar-actions">
-            <Button variant="outline" size="sm" onClick={() => navigate('/admin/test')}>Admin Console</Button>
-            <Button variant="outline" size="sm" onClick={() => void signOutUser()} disabled={!user}>
-              Sign out
-            </Button>
-          </div>
-        </aside>
+  async function handleRetryFailedMessage(messageId: string) {
+    const failedMessage = threadMessages.find((entry) => entry.id === messageId);
+    if (!failedMessage?.retryText || !selectedThread || !selectedChannelId) {
+      return;
+    }
 
-        <section className="channel-feed">
-          <header className="channel-feed-header">
-            <div>
-              <p className="eyebrow">Channel</p>
-              <h2>#{selectedChannel?.name ?? 'Select a channel'}</h2>
-            </div>
-            <p className="channel-status">
-              {isLoading === 'feed' ? 'Refreshing feed...' : 'Thread roots appear here.'}
-            </p>
-          </header>
-
-          <div className="feed-list">
-            {feedPosts.length === 0 ? (
-              <p className="empty-state">No channel posts yet.</p>
-            ) : (
-              feedPosts.map((post) => (
-                <Card key={post.threadId} className="overflow-hidden">
-                  <button
-                    className="feed-card-button"
-                    onClick={() => void handleOpenThread(post.threadId)}
-                    aria-label={`Open thread for ${post.rootMessageText}`}
-                  >
-                    <p className="feed-card-text">{post.rootMessageText}</p>
-                    <div className="feed-card-meta">
-                      <Badge variant="muted">{formatReplyCount(post.replyCount)}</Badge>
-                      <span>{post.lastMessageAt ? new Date(post.lastMessageAt).toLocaleString() : 'Just now'}</span>
-                    </div>
-                  </button>
-                </Card>
-              ))
-            )}
-          </div>
-
-          <div className="composer-panel">
-            <label className="field">
-              <span>Start a post</span>
-              <Textarea
-                aria-label="Start a post"
-                value={newPostMessage}
-                onChange={(event) => setNewPostMessage(event.target.value)}
-                rows={4}
-                placeholder={`Share an update in #${selectedChannel?.name ?? 'channel'}`}
-              />
-            </label>
-
-            <Button
-              onClick={() => void handleCreatePost()}
-              disabled={!user || !selectedChannelId || isLoading === 'create-post'}
-            >
-              {`Send to ${selectedChannel?.name ?? 'channel'}`}
-            </Button>
-          </div>
-        </section>
-
-        <aside className="thread-drawer">
-          <header className="thread-header">
-            <p className="eyebrow">Thread</p>
-            <h2>{selectedThread ? 'Conversation' : 'Select a post'}</h2>
-            <p className="thread-subtitle">
-              {selectedThread
-                ? 'Replies stream here while the channel feed stays stable.'
-                : 'Choose a feed post to open its thread.'}
-            </p>
-          </header>
-
-          <div className="thread-messages">
-            {threadMessages.length === 0 ? (
-              <p className="empty-state">No thread selected.</p>
-            ) : (
-              threadMessages.map((entry) => (
-                <Card
-                  key={entry.id}
-                  className={cn(
-                    'p-4',
-                    entry.role === 'user' ? 'bg-muted/40 border-border/50' : 'bg-primary/10 border-primary/20',
-                  )}
-                >
-                  <p className="thread-message-role">{entry.role}</p>
-                  <p style={{ margin: 0 }}>{entry.text}</p>
-                </Card>
-              ))
-            )}
-            {streamingReply ? (
-              <Card className={cn('p-4 thread-message-streaming', 'bg-primary/10 border-primary/20')}>
-                <p className="thread-message-role">assistant</p>
-                <p style={{ margin: 0 }}>{streamingReply}</p>
-              </Card>
-            ) : null}
-          </div>
-
-          <label className="field">
-            <span>Reply in thread</span>
-            <Textarea
-              aria-label="Reply in thread"
-              value={replyMessage}
-              onChange={(event) => setReplyMessage(event.target.value)}
-              rows={4}
-              disabled={!selectedThread}
-            />
-          </label>
-
-          <Button
-            onClick={() => void handleReplyInThread()}
-            disabled={!selectedThread || isLoading === 'reply'}
-          >
-            Reply in thread
-          </Button>
-
-          <div className="thread-debug">
-            <h3>Status</h3>
-            <p>{lastError || 'Connected'}</p>
-          </div>
-        </aside>
-      </main>
+    setThreadMessages((current) =>
+      current.map((entry) =>
+        entry.id === messageId
+          ? {
+              ...entry,
+              sendFailed: false,
+            }
+          : entry,
+      ),
     );
+
+    startLoading('reply');
+    clearError('thread');
+    setInterruptedNotice(undefined);
+
+    try {
+      await runThreadStream({
+        threadId: selectedThread.id,
+        channelId: selectedChannelId,
+        message: failedMessage.retryText,
+      });
+    } catch (error) {
+      setThreadMessages((current) =>
+        current.map((entry) =>
+          entry.id === messageId
+            ? {
+                ...entry,
+                sendFailed: true,
+              }
+            : entry,
+        ),
+      );
+      setError('thread', humanizeError(error));
+    } finally {
+      stopLoading('reply');
+    }
+  }
+
+  function handleDiscardFailedMessage(messageId: string) {
+    setThreadMessages((current) => current.filter((entry) => entry.id !== messageId));
+  }
+
+  async function handleSaveProjectSettings(name: string) {
+    if (!user || !activeProjectId) {
+      return;
+    }
+
+    startLoading('settings-save');
+    clearError('settings');
+    try {
+      const result = await updateProjectSettingsGeneral(user, activeProjectId, { name });
+      setSettingsGeneral((current) =>
+        current
+          ? {
+              ...current,
+              project: {
+                ...current.project,
+                name: result.project.name,
+                slug: result.project.slug,
+                status: result.project.status,
+              },
+            }
+          : current,
+      );
+      setProjects((current) =>
+        current.map((project) =>
+          project.id === activeProjectId
+            ? {
+                ...project,
+                name: result.project.name,
+                slug: result.project.slug,
+                status: result.project.status,
+              }
+            : project,
+        ),
+      );
+      reportSuccess();
+    } catch (error) {
+      reportScopedError('settings', error);
+    } finally {
+      stopLoading('settings-save');
+    }
+  }
+
+  async function handleArchiveProjectSettings() {
+    if (!user || !activeProjectId) {
+      return;
+    }
+
+    startLoading('settings-archive');
+    clearError('settings');
+    try {
+      const result = await archiveProjectSettings(user, activeProjectId);
+      setSettingsGeneral((current) =>
+        current
+          ? {
+              ...current,
+              project: {
+                ...current.project,
+                status: result.project.status,
+              },
+            }
+          : current,
+      );
+      setProjects((current) =>
+        current.map((project) =>
+          project.id === activeProjectId
+            ? {
+                ...project,
+                status: result.project.status,
+              }
+            : project,
+        ),
+      );
+      reportSuccess();
+    } catch (error) {
+      reportScopedError('settings', error);
+    } finally {
+      stopLoading('settings-archive');
+    }
+  }
+
+  async function handleInviteProjectMember(email: string, role: string) {
+    if (!user || !activeProjectId) {
+      return;
+    }
+
+    startLoading('settings-invite');
+    clearError('settings');
+    try {
+      await inviteProjectMember(user, activeProjectId, { email, role });
+      const members = await listProjectSettingsMembers(user, activeProjectId);
+      setSettingsMembers(members);
+      reportSuccess();
+    } catch (error) {
+      reportScopedError('settings', error);
+    } finally {
+      stopLoading('settings-invite');
+    }
+  }
+
+  async function handleRemoveProjectMember(membershipId: string) {
+    if (!user || !activeProjectId) {
+      return;
+    }
+
+    startLoading('settings-remove-member');
+    clearError('settings');
+    try {
+      await removeProjectMember(user, activeProjectId, membershipId);
+      const members = await listProjectSettingsMembers(user, activeProjectId);
+      setSettingsMembers(members);
+      reportSuccess();
+    } catch (error) {
+      reportScopedError('settings', error);
+    } finally {
+      stopLoading('settings-remove-member');
+    }
+  }
+
+  async function handleUpdateProjectMind(
+    mindId: string,
+    input: {
+      displayName?: string;
+      icon?: string;
+      blurb?: string | null;
+      enabled?: boolean;
+      promptOverride?: string | null;
+    },
+  ) {
+    if (!user || !activeProjectId) {
+      return;
+    }
+
+    startLoading('settings-update-mind');
+    clearError('settings');
+    try {
+      const result = await updateProjectMindConfig(user, activeProjectId, mindId, input);
+      setSettingsMinds((current) =>
+        current && result.mind
+          ? {
+              ...current,
+              minds: current.minds.map((mind) => (mind.id === mindId ? result.mind! : mind)),
+            }
+          : current,
+      );
+      reportSuccess();
+    } catch (error) {
+      reportScopedError('settings', error);
+    } finally {
+      stopLoading('settings-update-mind');
+    }
   }
 
   return (
-    <main className="admin-shell">
-      <section className="panel admin-panel">
-        <p className="eyebrow">Mastra Mindspace</p>
-        <h1>Admin Test Console</h1>
-        <p className="lede">
-          Authenticate with Firebase, provision a workspace, and jump into the Slack-shaped chat surface.
-        </p>
+    <>
+      <Route path="/chat/:projectId">
+        <main className={cn('mindspace-shell', selectedThread && 'thread-open')}>
+          {mobileNav.isMobile ? (
+            <MobileTopBar
+              screen={selectedThread ? 'thread' : 'index'}
+              channelName={selectedChannel?.name ?? 'channel'}
+              onOpenSidebar={mobileNav.openSidebar}
+              onBack={() => {
+                mobileNav.popScreen();
+                setSelectedThread(null);
+                setThreadMessages([]);
+                setStreamingReply('');
+                setInterruptedNotice(undefined);
+              }}
+              onCloseThread={() => {
+                setSelectedThread(null);
+                setThreadMessages([]);
+                setStreamingReply('');
+                setInterruptedNotice(undefined);
+              }}
+              onOpenSearch={() => {
+                setIsSearchOpen(true);
+                setSearchQuery('');
+                setSearchResults([]);
+              }}
+            />
+          ) : null}
+          <ConnectionBanner
+            status={connectionStatus}
+            onRetry={() => {
+              reportSuccess();
+            }}
+          />
+          {mobileNav.isMobile ? (
+            <button
+              type="button"
+              className={cn('mobile-sidebar-backdrop', mobileNav.isSidebarOpen && 'mobile-sidebar-backdrop-open')}
+              onClick={mobileNav.closeSidebar}
+              aria-label="Close navigation"
+            />
+          ) : null}
+          <div className={cn('mobile-sidebar-shell', mobileNav.isSidebarOpen && 'mobile-sidebar-shell-open')}>
+            <Sidebar
+              projects={projects}
+              activeProjectId={activeProjectId ?? ''}
+              isAdmin={false}
+              channels={channels}
+              selectedChannelId={selectedChannelId}
+              isCreatingChannel={isLoadingOp('create-channel')}
+              channelError={errors.get('channels')}
+              minds={STUB_MINDS}
+              teammates={STUB_TEAMMATES}
+              userName={userDisplayName}
+              userInitials={userInitials}
+              theme={themePreference}
+              onNavigateProject={(projectId) => navigate(`/chat/${projectId}`)}
+              onOpenSettings={() => {
+                setIsSettingsOpen(true);
+                if (activeProjectId) {
+                  void loadSettings(activeProjectId);
+                }
+              }}
+              onSelectChannel={(channelId) => {
+                setSelectedChannelId(channelId);
+                mobileNav.closeSidebar();
+              }}
+              onCreateChannel={(name) => void handleCreateChannel(name)}
+              onSignOut={() => void signOutUser()}
+              onToggleTheme={cycleTheme}
+            />
+          </div>
 
-        <div className="control-row">
-          <Button onClick={() => void signInWithGoogle()} disabled={Boolean(user)}>
-            Sign in with Google
-          </Button>
-          <Button onClick={() => void signOutUser()} disabled={!user}>
-            Sign out
-          </Button>
-          <Button onClick={() => void handleGetMe()} disabled={!user || isLoading === 'me'}>
-            GET /api/me
-          </Button>
-        </div>
+          <div className={cn('mobile-feed-shell', mobileNav.isMobile && selectedThread && 'mobile-pane-hidden')}>
+            <ChannelFeed
+              selectedChannel={selectedChannel}
+              feedPosts={feedPosts}
+              selectedThreadId={selectedThread?.id ?? null}
+              streamingMinds={streamingMinds}
+              newPostMessage={newPostMessage}
+              isFeedLoading={isLoadingOp('feed')}
+              isCreatingPost={isLoadingOp('create-post')}
+              feedError={errors.get('feed')}
+              onOpenThread={(threadId) => {
+                if (mobileNav.isMobile) {
+                  mobileNav.pushThread();
+                }
+                void handleOpenThread(threadId);
+              }}
+              onChangeNewPostMessage={setNewPostMessage}
+              onCreatePost={() => void handleCreatePost()}
+              onComposerKeyDown={(event) => {
+                if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                  event.preventDefault();
+                  void handleCreatePost();
+                }
+              }}
+              onRefreshFeed={() => {
+                if (activeProjectId && selectedChannelId) {
+                  void handleLoadFeed(activeProjectId, selectedChannelId);
+                }
+              }}
+              isSearchOpen={isSearchOpen}
+              searchQuery={searchQuery}
+              searchScope={searchScope}
+              searchResults={searchResults}
+              isSearching={isSearching}
+              onOpenSearch={() => {
+                searchRequestIdRef.current += 1;
+                setIsSearchOpen(true);
+                setSearchQuery('');
+                setSearchResults([]);
+              }}
+              onCloseSearch={() => {
+                searchRequestIdRef.current += 1;
+                setIsSearchOpen(false);
+                setSearchQuery('');
+                setSearchResults([]);
+                setIsSearching(false);
+              }}
+              onChangeSearchQuery={setSearchQuery}
+              onChangeSearchScope={(scope) => {
+                searchRequestIdRef.current += 1;
+                setSearchScope(scope);
+                setSearchResults([]);
+              }}
+              onSelectSearchResult={(result) => {
+                if (mobileNav.isMobile) {
+                  mobileNav.pushThread();
+                }
+                void handleSelectSearchResult(result);
+              }}
+            />
+          </div>
 
-        {import.meta.env.DEV ? (
-          <fieldset className="field">
-            <legend>Test credentials (dev only)</legend>
-            <label className="field">
-              <span>Email</span>
-              <Input
-                type="email"
-                value={testEmail}
-                onChange={(event) => setTestEmail(event.target.value)}
-                autoComplete="off"
-              />
-            </label>
-            <label className="field">
-              <span>Password</span>
-              <Input
-                type="password"
-                value={testPassword}
-                onChange={(event) => setTestPassword(event.target.value)}
-                autoComplete="off"
-              />
-            </label>
-            <div className="control-row">
-              <Button
-                onClick={() => void handleTestSignIn()}
-                disabled={Boolean(user) || !testEmail || !testPassword || isLoading === 'test-sign-in'}
-              >
-                Sign in with test credentials
-              </Button>
-            </div>
-          </fieldset>
-        ) : null}
-
-        <label className="field">
-          <span>Authenticated user</span>
-          <Input value={user?.email ?? 'Not signed in'} readOnly />
-        </label>
-
-        <label className="field">
-          <span>New project name</span>
-          <Input value={projectName} onChange={(event) => setProjectName(event.target.value)} />
-        </label>
-
-        <div className="control-row">
-          <Button
-            onClick={() => void handleBootstrapProject()}
-            disabled={!user || isLoading === 'bootstrap'}
-          >
-            Create Demo Project
-          </Button>
-          <Button
-            onClick={() => {
-              if (projectId) {
-                navigate(`/chat/${projectId}`);
+          <div className={cn('mobile-thread-shell', mobileNav.isMobile && !selectedThread && 'mobile-pane-hidden')}>
+            <ThreadDrawer
+              selectedThread={selectedThread}
+              channelName={selectedChannel?.name ?? 'channel'}
+              threadMessages={threadMessages}
+              streamingReply={streamingReply}
+              replyMessage={replyMessage}
+              isThreadLoading={isLoadingOp('thread')}
+              isReplying={isLoadingOp('reply')}
+              currentUserName={userDisplayName}
+              minds={STUB_MINDS.map((mind) => ({ name: mind.name, emoji: mind.icon }))}
+              threadError={errors.get('thread')}
+              interruptedNotice={interruptedNotice}
+              onClose={() => {
+                setSelectedThread(null);
+                setThreadMessages([]);
+                setStreamingReply('');
+                setInterruptedNotice(undefined);
+                mobileNav.popScreen();
+              }}
+              onChangeReplyMessage={setReplyMessage}
+              onReply={() => void handleReplyInThread()}
+              onReplyKeyDown={(event) => {
+                if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                  event.preventDefault();
+                  void handleReplyInThread();
+                }
+              }}
+              onRetryFailedMessage={(messageId) => void handleRetryFailedMessage(messageId)}
+              onDiscardFailedMessage={handleDiscardFailedMessage}
+            />
+          </div>
+          <SettingsModal
+            open={isSettingsOpen}
+            general={settingsGeneral}
+            members={settingsMembers}
+            minds={settingsMinds}
+            isLoading={isLoadingOp('settings')}
+            error={errors.get('settings')}
+            onClose={() => setIsSettingsOpen(false)}
+            onRefresh={() => {
+              if (activeProjectId) {
+                void loadSettings(activeProjectId);
               }
             }}
-            disabled={!projectId}
-          >
-            Open Chat Mindspace
-          </Button>
-        </div>
-
-        <label className="field">
-          <span>Project ID</span>
-          <Input value={projectId} onChange={(event) => setProjectId(event.target.value)} />
-        </label>
-
-        <label className="field">
-          <span>Message</span>
-          <Textarea
-            aria-label="Message"
-            value={adminMessage}
-            onChange={(event) => setAdminMessage(event.target.value)}
-            rows={4}
+            onSaveGeneral={(name) => void handleSaveProjectSettings(name)}
+            onArchiveProject={() => void handleArchiveProjectSettings()}
+            onInviteMember={(email, role) => void handleInviteProjectMember(email, role)}
+            onRemoveMember={(membershipId) => void handleRemoveProjectMember(membershipId)}
+            onUpdateMind={(mindId, input) => void handleUpdateProjectMind(mindId, input)}
           />
-        </label>
+        </main>
+      </Route>
 
-        <div className="control-row">
-          <Button
-            onClick={() => void handleRunAdminTest()}
-            disabled={!user || !projectId || isLoading === 'admin-test'}
-          >
-            Run Admin Test
-          </Button>
-        </div>
-      </section>
+      {import.meta.env.DEV ? (
+        <Route path="/admin/test">
+          <AdminConsole
+            user={user}
+            projects={projects}
+            projectName={projectName}
+            projectId={projectId}
+            adminMessage={adminMessage}
+            meResult={meResult}
+            mindspaceResult={mindspaceResult}
+            adminResult={adminResult}
+            errors={errors}
+            testEmail={testEmail}
+            testPassword={testPassword}
+            isLoadingOp={isLoadingOp}
+            onSetProjectName={setProjectName}
+            onSetProjectId={setProjectId}
+            onSetAdminMessage={setAdminMessage}
+            onSetTestEmail={setTestEmail}
+            onSetTestPassword={setTestPassword}
+            onSignInWithGoogle={() => void handleSignInWithGoogle()}
+            onSignOut={() => void signOutUser()}
+            onTestSignIn={() => void handleTestSignIn()}
+            onGetMe={() => void handleGetMe()}
+            onBootstrapProject={() => void handleBootstrapProject()}
+            onRunAdminTest={() => void handleRunAdminTest()}
+          />
+        </Route>
+      ) : null}
 
-      <section className="panel panel-output">
-        <article>
-          <h2>Projects</h2>
-          <div className="mindspace-list admin-project-list" aria-label="Projects">
-            {projects.map((project) => (
-              <button
-                key={project.id}
-                className={project.id === projectId ? 'mindspace-button mindspace-button-active' : 'mindspace-button'}
-                onClick={() => setProjectId(project.id)}
-              >
-                <span className="mindspace-button-name">{project.name}</span>
-                <span className="mindspace-button-slug">{project.slug}</span>
-              </button>
-            ))}
-          </div>
-        </article>
-        <article>
-          <h2>Profile</h2>
-          <pre>{meResult || 'No profile request yet.'}</pre>
-        </article>
-        <article>
-          <h2>Bootstrap response</h2>
-          <pre>{mindspaceResult || 'No bootstrap request yet.'}</pre>
-        </article>
-        <article>
-          <h2>Admin Test</h2>
-          <pre>{adminResult || 'No admin test response yet.'}</pre>
-        </article>
-        <article>
-          <h2>Last Error</h2>
-          <pre>{formatJson(lastError, 'No errors.')}</pre>
-        </article>
-      </section>
-    </main>
+      <Route path="/">
+        {user ? (
+          <PostAuthRouter
+            projects={projects}
+            isLoading={isLoadingOp('projects')}
+            onSignOut={() => void signOutUser()}
+          />
+        ) : (
+          <SignIn
+            onSignInWithGoogle={() => void handleSignInWithGoogle()}
+            isSigningIn={isLoadingOp('sign-in')}
+            error={errors.get('auth')}
+          />
+        )}
+      </Route>
+    </>
   );
 }
