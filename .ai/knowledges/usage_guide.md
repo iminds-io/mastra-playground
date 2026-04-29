@@ -89,6 +89,8 @@ SMOKE_BASE_URL=
 SMOKE_REQUIRES_MIGRATED_DB=
 ```
 
+`DATABASE_URL` in the root `.env` may point at the deployed Neon database for operator work. Integration tests are safe only when run through the repo's integration Vitest config, which creates a Neon branch and writes the branch URL to `.vitest.integration.env` before test workers load DB clients. Do not run DB-mutating integration files with an ad hoc command that bypasses `packages/platform/test/integration/setup.ts`; those tests truncate tables and can erase the deployment database if they fall back to root `.env`.
+
 ### Worker / R2
 
 `packages/worker/.dev.vars.example` contains the Worker-specific shape:

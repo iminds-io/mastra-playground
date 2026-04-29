@@ -34,6 +34,22 @@ Tests that require an unavailable var use `describe.skipIf(...)` and silently sk
 - **E2E** does the same plus a unique R2 prefix (`e2e-runs/${uuid}/`), writes `.dev.vars.test`, spawns wrangler dev, kills it and cleans up on exit.
 - **Smoke** creates Firebase test users for auth; created users are deleted in `afterAll`. Smoke writes persist in the deployed worker's DB — see bootstrap.smoke.test.ts note.
 
+## Deployment DB safety note
+
+The root `.env` may point at the currently deployed Neon database for operator commands. Integration tests must still run through `pnpm test:integration` or an equivalent Vitest config that uses `packages/platform/test/integration/setup.ts`.
+
+That setup writes the generated Neon branch URL to `.vitest.integration.env`, and each test worker loads it after `.env` so the branch `DATABASE_URL` wins. Do not run DB-mutating integration files directly with a raw runner, and do not import `@mastra-mindspace/platform/node` before the integration setup has loaded the branch URL. If a test process falls back to root `.env`, its `truncate table ... cascade` setup can erase the deployed database.
+
+Before running broad integration tests after a deployment DB cutover, verify isolation with:
+
+```bash
+pnpm exec vitest run --config vitest.integration.config.ts \
+  packages/app/test/integration/dev-bootstrap.integration.test.ts \
+  packages/platform/test/integration/projects.integration.test.ts
+```
+
+Then confirm the deployed DB row counts did not change unexpectedly.
+
 ## Cleanup discipline
 
 Cleanup failures fail the test run. Keep an eye on `console.neon.tech` (branches), Firebase Auth (users), and R2 (`e2e-runs/` prefix) for leaks.

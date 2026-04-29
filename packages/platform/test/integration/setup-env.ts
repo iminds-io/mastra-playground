@@ -1,9 +1,10 @@
-// ABOUTME: Vitest setupFiles entry that loads the repo root .env in every test worker.
-// ABOUTME: globalSetup doesn't propagate env vars to workers — they need their own load.
+// ABOUTME: Vitest setupFiles entry that loads the repo root .env and then the
+// ABOUTME: integration branch DATABASE_URL written by globalSetup.
 
-import { config } from 'dotenv';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { loadIntegrationDatabaseEnvFile } from '../helpers/integration-env-file';
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
-config({ path: resolve(__dirname, '../../../../.env') });
+loadIntegrationDatabaseEnvFile(resolve(__dirname, '../../../../'));
