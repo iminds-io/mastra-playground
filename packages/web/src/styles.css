@@ -49,6 +49,12 @@ body {
   grid-template-columns: 260px 300px minmax(0, 1fr);
 }
 
+.mobile-sidebar-shell,
+.mobile-feed-shell,
+.mobile-thread-shell {
+  display: contents;
+}
+
 /* ─── Sidebar ────────────────────────────────────────────────────────────── */
 .sidebar {
   grid-row: 2;
@@ -1395,6 +1401,7 @@ pre {
   }
 
   .mobile-sidebar-shell {
+    display: block;
     position: fixed;
     inset: 0 auto 0 0;
     width: min(20rem, 82vw);
@@ -1426,6 +1433,7 @@ pre {
 
   .mobile-feed-shell,
   .mobile-thread-shell {
+    display: block;
     min-height: 0;
   }
 
@@ -1437,5 +1445,27 @@ pre {
 
   .settings-panel-grid {
     grid-template-columns: 1fr;
+  }
+
+  /* ─── WCAG 2.5.5 touch targets (≥44px) ──────────────────────────────────── */
+  .mobile-topbar button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  .channel-button {
+    min-height: 44px;
+  }
+
+  .feed-card-button {
+    min-height: 72px;
+  }
+
+  .composer-wrapper {
+    min-height: 48px;
+  }
+
+  .sidebar-member-row {
+    min-height: 44px;
   }
 }

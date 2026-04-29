@@ -1,5 +1,5 @@
-// ABOUTME: Placeholder data for sidebar sections that do not have backend endpoints yet
-// ABOUTME: Replace with real API-backed data when members and minds APIs ship
+// ABOUTME: Temporary sidebar data for surfaces that are not fully API-backed yet.
+// ABOUTME: For now we only expose the real Librarian mind; new mind creation stays placeholder-only.
 
 export type MindSummary = {
   id: string;
@@ -18,7 +18,6 @@ export type TeammateSummary = {
 
 export const STUB_MINDS: MindSummary[] = [
   { id: 'mind-librarian', name: 'Librarian', icon: '\u{1F4DA}', presence: 'online' },
-  { id: 'mind-claude', name: 'Claude', icon: '\u{1F916}', presence: 'online' },
 ];
 
 export const STUB_TEAMMATES: TeammateSummary[] = [

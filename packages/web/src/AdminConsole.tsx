@@ -167,17 +167,24 @@ export function AdminConsole({
         <InlineError message={errors.get('admin')} />
         <article>
           <h2>Projects</h2>
+          <p className="sidebar-empty">
+            Admin project listing is separate from project membership. Opening chat still depends on project access.
+          </p>
           <div className="mindspace-list admin-project-list" aria-label="Projects">
-            {projects.map((project) => (
-              <button
-                key={project.id}
-                className={project.id === projectId ? 'mindspace-button mindspace-button-active' : 'mindspace-button'}
-                onClick={() => onSetProjectId(project.id)}
-              >
-                <span className="mindspace-button-name">{project.name}</span>
-                <span className="mindspace-button-slug">{project.slug}</span>
-              </button>
-            ))}
+            {projects.length === 0 ? (
+              <p className="sidebar-empty">No projects exist in this local dev database yet.</p>
+            ) : (
+              projects.map((project) => (
+                <button
+                  key={project.id}
+                  className={project.id === projectId ? 'mindspace-button mindspace-button-active' : 'mindspace-button'}
+                  onClick={() => onSetProjectId(project.id)}
+                >
+                  <span className="mindspace-button-name">{project.name}</span>
+                  <span className="mindspace-button-slug">{project.slug}</span>
+                </button>
+              ))
+            )}
           </div>
         </article>
         <article>

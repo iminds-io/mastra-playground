@@ -18,6 +18,7 @@ export type ThreadDrawerProps = {
   channelName: string;
   threadMessages: ThreadMessage[];
   streamingReply: string;
+  assistantPending: boolean;
   replyMessage: string;
   isThreadLoading: boolean;
   isReplying: boolean;
@@ -38,6 +39,7 @@ export function ThreadDrawer({
   channelName,
   threadMessages,
   streamingReply,
+  assistantPending,
   replyMessage,
   isThreadLoading,
   isReplying,
@@ -121,7 +123,7 @@ export function ThreadDrawer({
             </div>
           ))
         )}
-        {streamingReply ? (
+        {assistantPending || streamingReply ? (
           <StreamingMessageCard
             text={streamingReply}
             mindName={minds[0]?.name ?? 'Assistant'}

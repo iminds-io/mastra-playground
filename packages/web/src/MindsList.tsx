@@ -29,6 +29,10 @@ export function MindsList({ minds }: MindsListProps) {
           ))}
         </div>
       )}
+
+      <p className="sidebar-empty" style={{ marginTop: '0.75rem' }}>
+        New mind creation coming soon.
+      </p>
     </section>
   );
 }

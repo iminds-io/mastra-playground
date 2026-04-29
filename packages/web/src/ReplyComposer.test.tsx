@@ -17,8 +17,7 @@ describe('ReplyComposer', () => {
     onKeyDown: vi.fn(),
     disabled: false,
     minds: [
-      { name: 'Claude', emoji: '🤖' },
-      { name: 'Reviewer', emoji: '🔍' },
+      { name: 'Librarian', emoji: '📚' },
     ],
   };
 
@@ -29,15 +28,14 @@ describe('ReplyComposer', () => {
 
   it('renders mind mention chips', () => {
     render(<ReplyComposer {...defaultProps} />);
-    expect(screen.getByRole('button', { name: /@Claude/i })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /@Reviewer/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /@Librarian/i })).toBeTruthy();
   });
 
   it('appends @mention to the textarea value when a chip is clicked', () => {
     const onChange = vi.fn();
     render(<ReplyComposer {...defaultProps} value="Hello " onChange={onChange} />);
-    fireEvent.click(screen.getByRole('button', { name: /@Claude/i }));
-    expect(onChange).toHaveBeenCalledWith('Hello @Claude ');
+    fireEvent.click(screen.getByRole('button', { name: /@Librarian/i }));
+    expect(onChange).toHaveBeenCalledWith('Hello @Librarian ');
   });
 
   it('shows the keyboard shortcut hint', () => {
@@ -60,6 +58,6 @@ describe('ReplyComposer', () => {
 
   it('renders no chips when minds array is empty', () => {
     render(<ReplyComposer {...defaultProps} minds={[]} />);
-    expect(screen.queryByRole('button', { name: /@Claude/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /@Librarian/i })).toBeNull();
   });
 });

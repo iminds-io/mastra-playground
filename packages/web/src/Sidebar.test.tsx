@@ -19,7 +19,7 @@ const CHANNELS: ChannelSummary[] = [
   { id: 'ch-2', name: 'engineering', slug: 'engineering' },
 ];
 
-const MINDS: MindSummary[] = [{ id: 'mind-1', name: 'Claude', icon: '\u{1F916}', presence: 'online' }];
+const MINDS: MindSummary[] = [{ id: 'mind-1', name: 'Librarian', icon: '\u{1F4DA}', presence: 'online' }];
 const TEAMMATES: TeammateSummary[] = [
   { id: 't-1', displayName: 'Alice Chen', initials: 'AC', email: 'alice@example.com', presence: 'online' },
 ];
@@ -70,7 +70,7 @@ describe('Sidebar', () => {
     renderSidebar();
 
     expect(screen.getByText('MINDS')).toBeTruthy();
-    expect(screen.getByText('Claude')).toBeTruthy();
+    expect(screen.getByText('Librarian')).toBeTruthy();
   });
 
   it('renders the teammates section', () => {

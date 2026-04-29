@@ -7,11 +7,31 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useTheme } from './useTheme';
 
+function installLocalStorageMock() {
+  const store = new Map<string, string>();
+  Object.defineProperty(window, 'localStorage', {
+    configurable: true,
+    value: {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        store.set(key, String(value));
+      },
+      removeItem: (key: string) => {
+        store.delete(key);
+      },
+      clear: () => {
+        store.clear();
+      },
+    },
+  });
+}
+
 describe('useTheme', () => {
   let matchMediaListeners: Array<(event: { matches: boolean }) => void>;
 
   beforeEach(() => {
-    localStorage.clear();
+    installLocalStorageMock();
+    window.localStorage.clear();
     document.documentElement.removeAttribute('data-theme');
     matchMediaListeners = [];
 
@@ -46,7 +66,7 @@ describe('useTheme', () => {
   });
 
   it('reads a stored preference from localStorage', () => {
-    localStorage.setItem('mindspace-theme', 'light');
+    window.localStorage.setItem('mindspace-theme', 'light');
 
     const { result } = renderHook(() => useTheme());
 
@@ -55,7 +75,7 @@ describe('useTheme', () => {
   });
 
   it('cycles through light → dark → system on each call to cycle()', () => {
-    localStorage.setItem('mindspace-theme', 'light');
+    window.localStorage.setItem('mindspace-theme', 'light');
 
     const { result } = renderHook(() => useTheme());
 
@@ -63,12 +83,12 @@ describe('useTheme', () => {
 
     act(() => result.current.cycle());
     expect(result.current.preference).toBe('dark');
-    expect(localStorage.getItem('mindspace-theme')).toBe('dark');
+    expect(window.localStorage.getItem('mindspace-theme')).toBe('dark');
     expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
 
     act(() => result.current.cycle());
     expect(result.current.preference).toBe('system');
-    expect(localStorage.getItem('mindspace-theme')).toBe('system');
+    expect(window.localStorage.getItem('mindspace-theme')).toBe('system');
 
     act(() => result.current.cycle());
     expect(result.current.preference).toBe('light');

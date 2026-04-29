@@ -59,6 +59,8 @@ export type ChannelFeedPost = {
   replyCount: number;
   lastMessageAt: string | null;
   createdAt: string;
+  isOptimistic?: boolean;
+  clientRequestId?: string;
 };
 
 export type ThreadSummary = {
@@ -144,6 +146,19 @@ export type ProjectSettingsMinds = {
   minds: ProjectMindConfig[];
 };
 
+export type SessionBootstrap = {
+  me: {
+    uid: string;
+    email: string | null;
+    name: string | null;
+  };
+  capabilities: {
+    canAccessAdminConsole: boolean;
+  };
+  projects: AccessibleProjectSummary[];
+  preferredProjectId: string | null;
+} & ResponseMeta;
+
 export type StreamEvent = {
   event: string;
   data: Record<string, unknown>;
@@ -227,10 +242,22 @@ export async function getMe(user: AuthUser) {
   } & ResponseMeta>('/api/me', user, { method: 'GET' });
 }
 
+export async function getSessionBootstrap(user: AuthUser) {
+  return apiFetch<SessionBootstrap>('/api/session/bootstrap', user, { method: 'GET' });
+}
+
 export async function listAccessibleProjects(user: AuthUser) {
   return apiFetch<{
     projects: AccessibleProjectSummary[];
   } & ResponseMeta>('/api/projects', user, {
+    method: 'GET',
+  });
+}
+
+export async function listAdminProjects(user: AuthUser) {
+  return apiFetch<{
+    projects: AccessibleProjectSummary[];
+  } & ResponseMeta>('/api/dev/projects', user, {
     method: 'GET',
   });
 }
@@ -409,68 +436,12 @@ export async function createChannelPost(
   });
 }
 
-export async function searchMessages(
-  user: AuthUser,
-  projectId: string,
-  query: string,
-  options?: { channelId?: string; page?: number },
-) {
-  const params = new URLSearchParams({ q: query });
-  if (options?.channelId) {
-    params.set('channelId', options.channelId);
-  }
-  if (options?.page !== undefined && options.page > 0) {
-    params.set('page', String(options.page));
-  }
-
-  return apiFetch<{
-    results: SearchResult[];
-  } & ResponseMeta>(`/api/projects/${projectId}/search?${params}`, user, {
-    method: 'GET',
-  });
-}
-
-export async function getChannelThread(
-  user: AuthUser,
-  projectId: string,
-  channelId: string,
-  threadId: string,
-) {
-  return apiFetch<ThreadDetails>(
-    `/api/projects/${projectId}/channels/${channelId}/threads/${threadId}`,
-    user,
-    {
-      method: 'GET',
-    },
-  );
-}
-
-export async function streamThreadReply(
-  user: AuthUser,
-  projectId: string,
-  channelId: string,
-  threadId: string,
-  message: string | undefined,
+async function readEventStream(
+  response: Response,
   handlers: {
     onEvent(event: StreamEvent): void;
   },
-  agentId?: string,
 ) {
-  const response = await fetch(
-    `/api/projects/${projectId}/channels/${channelId}/threads/${threadId}/messages/stream`,
-    {
-      method: 'POST',
-      headers: {
-        ...(await buildHeaders(user)),
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        ...(typeof message === 'string' ? { message } : {}),
-        ...(agentId ? { agentId } : {}),
-      }),
-    },
-  );
-
   if (!response.ok) {
     const contentType = response.headers.get('content-type') ?? '';
     const payload = contentType.includes('application/json')
@@ -534,4 +505,97 @@ export async function streamThreadReply(
   if (!sawDone) {
     throw new StreamInterruptedError(partialText);
   }
+}
+
+export async function createChannelPostAndStream(
+  user: AuthUser,
+  projectId: string,
+  channelId: string,
+  message: string,
+  handlers: {
+    onEvent(event: StreamEvent): void;
+  },
+  agentId?: string,
+) {
+  const response = await fetch(
+    `/api/projects/${projectId}/channels/${channelId}/posts/stream`,
+    {
+      method: 'POST',
+      headers: {
+        ...(await buildHeaders(user)),
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        message,
+        ...(agentId ? { agentId } : {}),
+      }),
+    },
+  );
+
+  await readEventStream(response, handlers);
+}
+
+export async function searchMessages(
+  user: AuthUser,
+  projectId: string,
+  query: string,
+  options?: { channelId?: string; page?: number },
+) {
+  const params = new URLSearchParams({ q: query });
+  if (options?.channelId) {
+    params.set('channelId', options.channelId);
+  }
+  if (options?.page !== undefined && options.page > 0) {
+    params.set('page', String(options.page));
+  }
+
+  return apiFetch<{
+    results: SearchResult[];
+  } & ResponseMeta>(`/api/projects/${projectId}/search?${params}`, user, {
+    method: 'GET',
+  });
+}
+
+export async function getChannelThread(
+  user: AuthUser,
+  projectId: string,
+  channelId: string,
+  threadId: string,
+) {
+  return apiFetch<ThreadDetails>(
+    `/api/projects/${projectId}/channels/${channelId}/threads/${threadId}`,
+    user,
+    {
+      method: 'GET',
+    },
+  );
+}
+
+export async function streamThreadReply(
+  user: AuthUser,
+  projectId: string,
+  channelId: string,
+  threadId: string,
+  message: string | undefined,
+  handlers: {
+    onEvent(event: StreamEvent): void;
+  },
+  agentId?: string,
+) {
+  const response = await fetch(
+    `/api/projects/${projectId}/channels/${channelId}/threads/${threadId}/messages/stream`,
+    {
+      method: 'POST',
+      headers: {
+        ...(await buildHeaders(user)),
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        ...(typeof message === 'string' ? { message } : {}),
+        ...(agentId ? { agentId } : {}),
+      }),
+    },
+  );
+
+  await readEventStream(response, handlers);
 }

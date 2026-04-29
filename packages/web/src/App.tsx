@@ -1,17 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 
 import { cn } from '@mastra-mindspace/ui';
 
 import {
   archiveProjectSettings,
   bootstrapProject,
-  createChannelPost,
+  createChannelPostAndStream,
   createProjectChannel,
   getChannelThread,
+  getSessionBootstrap,
   getMe,
   getProjectSettingsGeneral,
   inviteProjectMember,
-  listAccessibleProjects,
+  listAdminProjects,
   listChannelFeed,
   listProjectMindConfigs,
   listProjectChannels,
@@ -42,14 +44,25 @@ import { SettingsModal } from './SettingsModal';
 import { SignIn } from './SignIn';
 import { Sidebar } from './Sidebar';
 import { STUB_MINDS, STUB_TEAMMATES } from './sidebar-stubs';
+import { extractMentionedAgentId } from './extractMentionedAgentId';
 import { ChannelFeed } from './ChannelFeed';
 import type { SearchScope } from './SearchOverlay';
 import { ThreadDrawer } from './ThreadDrawer';
 import { humanizeError } from './humanizeError';
+import { createChatTimingFlow } from './chatTimings';
+import {
+  applyNewMessageToThread,
+  applyNewThreadToFeed,
+  applyThreadUpdatedToFeed,
+  applyThreadUpdatedToThread,
+} from './channelEventReconciler';
+import { clearLastProjectId, getLastProjectId, setLastProjectId } from './lastProject';
+import { chatQueryKeys, fetchChannelFeed, fetchChannelThread, fetchProjectChannels } from './queries/chatQueries';
 import { Route, navigate, useRoute } from './router';
 import { useChannelEvents } from './useChannelEvents';
 import { useConnectionStatus } from './useConnectionStatus';
 import { useMobileNav } from './useMobileNav';
+import { useSwipeBack } from './useSwipeBack';
 import { useTheme } from './useTheme';
 import './styles.css';
 
@@ -91,6 +104,24 @@ function createOptimisticMessage(role: 'user' | 'assistant', text: string): Thre
   };
 }
 
+function createOptimisticFeedPost(input: {
+  clientRequestId: string;
+  message: string;
+  createdAt: string;
+}): ChannelFeedPost {
+  return {
+    threadId: input.clientRequestId,
+    rootMessageId: `${input.clientRequestId}:root`,
+    rootMessageText: input.message,
+    rootMessageRole: 'user',
+    replyCount: 0,
+    lastMessageAt: input.createdAt,
+    createdAt: input.createdAt,
+    isOptimistic: true,
+    clientRequestId: input.clientRequestId,
+  };
+}
+
 function deriveInitials(name: string | null, email: string | null): string {
   if (name) {
     const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -108,11 +139,14 @@ function deriveInitials(name: string | null, email: string | null): string {
 }
 
 export function App() {
+  const queryClient = useQueryClient();
   const route = useRoute();
   const activeProjectId = getChatProjectId(route.path);
   const { preference: themePreference, cycle: cycleTheme } = useTheme();
   const { status: connectionStatus, reportFailure, reportSuccess } = useConnectionStatus();
   const mobileNav = useMobileNav();
+  const threadShellRef = useRef<HTMLDivElement>(null);
+  useSwipeBack(threadShellRef, () => mobileNav.popScreen());
   const [user, setUser] = useState<AuthUser | null>(null);
   const [projectName, setProjectName] = useState('Demo Project');
   const [projectId, setProjectId] = useState('');
@@ -137,6 +171,7 @@ export function App() {
   );
 
   const [projects, setProjects] = useState<AccessibleProjectSummary[]>([]);
+  const [adminProjects, setAdminProjects] = useState<AccessibleProjectSummary[]>([]);
   const [channels, setChannels] = useState<ChannelSummary[]>([]);
   const [selectedChannelId, setSelectedChannelId] = useState('');
   const [feedPosts, setFeedPosts] = useState<ChannelFeedPost[]>([]);
@@ -152,6 +187,7 @@ export function App() {
   const [pendingScrollMessageId, setPendingScrollMessageId] = useState<string | null>(null);
   const [replyMessage, setReplyMessage] = useState('');
   const [streamingReply, setStreamingReply] = useState('');
+  const [assistantPending, setAssistantPending] = useState(false);
   const [interruptedNotice, setInterruptedNotice] = useState<string | undefined>(undefined);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -163,6 +199,9 @@ export function App() {
   const [settingsGeneral, setSettingsGeneral] = useState<ProjectSettingsGeneral | null>(null);
   const [settingsMembers, setSettingsMembers] = useState<ProjectSettingsMembers | null>(null);
   const [settingsMinds, setSettingsMinds] = useState<ProjectSettingsMinds | null>(null);
+  const [bootstrapTargetProjectId, setBootstrapTargetProjectId] = useState<string | null>(null);
+  const [canAccessAdminConsole, setCanAccessAdminConsole] = useState(false);
+  const [sessionBootstrapError, setSessionBootstrapError] = useState<string | null>(null);
   const searchRequestIdRef = useRef(0);
 
   const selectedChannel = useMemo(
@@ -236,16 +275,28 @@ export function App() {
       setMeResult('');
       setMeName(null);
       setProjects([]);
+      setAdminProjects([]);
+      setBootstrapTargetProjectId(null);
+      setCanAccessAdminConsole(false);
+      setSessionBootstrapError(null);
       setChannels([]);
       setFeedPosts([]);
       setSelectedThread(null);
       setThreadMessages([]);
+      setAssistantPending(false);
       return;
     }
 
-    void handleGetMe();
-    void handleLoadProjects();
+    void handleBootstrapSession();
   }, [user]);
+
+  useEffect(() => {
+    if (!user || route.path !== '/admin/test') {
+      return;
+    }
+
+    void handleLoadAdminProjects();
+  }, [user, route.path]);
 
   useEffect(() => {
     return () => {
@@ -257,10 +308,18 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    if (activeProjectId) {
+      setLastProjectId(activeProjectId);
+      setBootstrapTargetProjectId(activeProjectId);
+    }
+  }, [activeProjectId]);
+
+  useEffect(() => {
     setProjectId(activeProjectId ?? '');
     setSelectedThread(null);
     setThreadMessages([]);
     setStreamingReply('');
+    setAssistantPending(false);
     setPendingScrollMessageId(null);
     setInterruptedNotice(undefined);
     setPendingThreadSelection(null);
@@ -292,6 +351,7 @@ export function App() {
     setSelectedThread(null);
     setThreadMessages([]);
     setStreamingReply('');
+    setAssistantPending(false);
     setPendingScrollMessageId(null);
     setInterruptedNotice(undefined);
     setPendingThreadSelection(null);
@@ -401,49 +461,58 @@ export function App() {
     handlers: useMemo(
       () => ({
         new_thread: (data) => {
-          setFeedPosts((current) => [
-            {
-              threadId: data.thread.id,
-              rootMessageId: data.rootMessage.id,
-              rootMessageText: data.rootMessage.text,
-              rootMessageRole: data.rootMessage.role,
-              replyCount: 0,
-              lastMessageAt: data.thread.lastMessageAt,
-              createdAt: data.rootMessage.createdAt,
-            },
-            ...current.filter((post) => post.threadId !== data.thread.id),
-          ]);
+          setFeedPosts((current) => applyNewThreadToFeed(current, data));
+          if (activeProjectId && selectedChannelId) {
+            queryClient.setQueryData<ChannelFeedPost[]>(
+              chatQueryKeys.feed(activeProjectId, selectedChannelId),
+              (current = []) => applyNewThreadToFeed(current, data),
+            );
+          }
         },
         new_message: (data) => {
           if (selectedThread?.id !== data.threadId) {
             return;
           }
 
-          setThreadMessages((current) =>
-            current.some((message) => message.id === data.message.id) ? current : [...current, data.message],
-          );
+          setThreadMessages((current) => applyNewMessageToThread(current, data));
+          if (activeProjectId && selectedChannelId) {
+            queryClient.setQueryData<{
+              thread: ThreadSummary;
+              messages: ThreadMessage[];
+            } | undefined>(
+              chatQueryKeys.thread(activeProjectId, selectedChannelId, data.threadId),
+              (current) =>
+                current
+                  ? {
+                      ...current,
+                      messages: applyNewMessageToThread(current.messages, data),
+                    }
+                  : current,
+            );
+          }
         },
         thread_updated: (data) => {
-          setFeedPosts((current) =>
-            current.map((post) =>
-              post.threadId === data.threadId
-                ? {
-                    ...post,
-                    lastMessageAt: data.lastMessageAt,
-                    replyCount: data.replyCount,
-                  }
-                : post,
-            ),
-          );
-          setSelectedThread((current) =>
-            current && current.id === data.threadId
-              ? {
-                  ...current,
-                  lastMessageAt: data.lastMessageAt,
-                  updatedAt: data.lastMessageAt,
-                }
-              : current,
-          );
+          setFeedPosts((current) => applyThreadUpdatedToFeed(current, data));
+          setSelectedThread((current) => applyThreadUpdatedToThread(current, data));
+          if (activeProjectId && selectedChannelId) {
+            queryClient.setQueryData<ChannelFeedPost[]>(
+              chatQueryKeys.feed(activeProjectId, selectedChannelId),
+              (current = []) => applyThreadUpdatedToFeed(current, data),
+            );
+            queryClient.setQueryData<{
+              thread: ThreadSummary;
+              messages: ThreadMessage[];
+            } | undefined>(
+              chatQueryKeys.thread(activeProjectId, selectedChannelId, data.threadId),
+              (current) =>
+                current
+                  ? {
+                      ...current,
+                      thread: applyThreadUpdatedToThread(current.thread, data) ?? current.thread,
+                    }
+                  : current,
+            );
+          }
         },
         mind_streaming: (data) => {
           setStreamingMinds((current) => {
@@ -457,7 +526,7 @@ export function App() {
           });
         },
       }),
-      [selectedThread?.id],
+      [activeProjectId, queryClient, selectedChannelId, selectedThread?.id],
     ),
   });
 
@@ -504,21 +573,62 @@ export function App() {
     }
   }
 
-  async function handleLoadProjects() {
+  async function handleBootstrapSession() {
     if (!user) {
       return;
     }
 
-    startLoading('projects');
+    startLoading('session');
+    clearError('session');
+    setSessionBootstrapError(null);
+    try {
+      const result = await getSessionBootstrap(user);
+      setMeName(result.me.name ?? null);
+      setMeResult(JSON.stringify(result.me, null, 2));
+      setProjects((current) => mergeProjects(current, result.projects));
+      setCanAccessAdminConsole(result.capabilities.canAccessAdminConsole);
+      setSessionBootstrapError(null);
+      const lastProjectId = getLastProjectId();
+      const hasValidCachedProject =
+        typeof lastProjectId === 'string' &&
+        result.projects.some((project) => project.id === lastProjectId);
+
+      if (hasValidCachedProject) {
+        setBootstrapTargetProjectId(lastProjectId);
+      } else {
+        if (lastProjectId) {
+          clearLastProjectId();
+        }
+        setBootstrapTargetProjectId(result.preferredProjectId);
+      }
+      reportSuccess();
+    } catch (error) {
+      const message = humanizeError(error);
+      reportFailure();
+      setSessionBootstrapError(message);
+      setCanAccessAdminConsole(false);
+      setError('session', message);
+    } finally {
+      stopLoading('session');
+    }
+  }
+
+  async function handleLoadAdminProjects() {
+    if (!user) {
+      return;
+    }
+
+    startLoading('admin-projects');
     clearError('admin');
     try {
-      const result = await listAccessibleProjects(user);
-      setProjects((current) => mergeProjects(current, result.projects));
+      const result = await listAdminProjects(user);
+      setAdminProjects(result.projects);
+      setProjectId((current) => current || result.projects[0]?.id || '');
       reportSuccess();
     } catch (error) {
       reportScopedError('admin', error);
     } finally {
-      stopLoading('projects');
+      stopLoading('admin-projects');
     }
   }
 
@@ -564,6 +674,9 @@ export function App() {
       if (bootstrappedProject) {
         setProjects((current) => mergeProjects(current, [bootstrappedProject]));
       }
+      if (route.path === '/admin/test') {
+        void handleLoadAdminProjects();
+      }
       reportSuccess();
     } catch (error) {
       reportScopedError('admin', error);
@@ -598,14 +711,17 @@ export function App() {
     startLoading('channels');
     clearError('channels');
     try {
-      const result = await listProjectChannels(user, nextProjectId);
-      setChannels(result.channels);
+      const nextChannels = await queryClient.fetchQuery({
+        queryKey: chatQueryKeys.channels(nextProjectId),
+        queryFn: () => fetchProjectChannels(user, nextProjectId),
+      });
+      setChannels(nextChannels);
       setSelectedChannelId((current) => {
-        if (current && result.channels.some((channel) => channel.id === current)) {
+        if (current && nextChannels.some((channel) => channel.id === current)) {
           return current;
         }
 
-        return result.channels[0]?.id ?? '';
+        return nextChannels[0]?.id ?? '';
       });
       reportSuccess();
     } catch (error) {
@@ -624,6 +740,9 @@ export function App() {
     clearError('channels');
     try {
       const result = await createProjectChannel(user, activeProjectId, name.trim());
+      queryClient.setQueryData<ChannelSummary[]>(chatQueryKeys.channels(activeProjectId), (current = []) =>
+        [...current, result.channel].sort((left, right) => left.name.localeCompare(right.name)),
+      );
       setChannels((current) =>
         [...current, result.channel].sort((left, right) => left.name.localeCompare(right.name)),
       );
@@ -665,8 +784,11 @@ export function App() {
     startLoading('feed');
     clearError('feed');
     try {
-      const result = await listChannelFeed(user, nextProjectId, channelId);
-      setFeedPosts(result.posts);
+      const nextPosts = await queryClient.fetchQuery({
+        queryKey: chatQueryKeys.feed(nextProjectId, channelId),
+        queryFn: () => fetchChannelFeed(user, nextProjectId, channelId),
+      });
+      setFeedPosts(nextPosts);
       reportSuccess();
     } catch (error) {
       reportScopedError('feed', error);
@@ -688,10 +810,14 @@ export function App() {
     startLoading('thread');
     clearError('thread');
     try {
-      const result = await getChannelThread(user, activeProjectId, channelId, threadId);
+      const result = await queryClient.fetchQuery({
+        queryKey: chatQueryKeys.thread(activeProjectId, channelId, threadId),
+        queryFn: () => fetchChannelThread(user, activeProjectId, channelId, threadId),
+      });
       setSelectedThread(result.thread);
       setThreadMessages(result.messages);
       setStreamingReply('');
+      setAssistantPending(false);
       setInterruptedNotice(undefined);
       reportSuccess();
     } catch (error) {
@@ -714,28 +840,256 @@ export function App() {
 
     startLoading('create-post');
     clearError('feed');
+    const timing = createChatTimingFlow('post', {
+      log: () => {},
+    });
+    timing.mark('submit');
+    const clientRequestId = `optimistic-thread-${Date.now()}`;
+    const optimisticCreatedAt = new Date().toISOString();
+    const optimisticFeedPost = createOptimisticFeedPost({
+      clientRequestId,
+      message,
+      createdAt: optimisticCreatedAt,
+    });
+    const optimisticThread = {
+      id: clientRequestId,
+      channelId: selectedChannelId,
+      title: null,
+      lastMessageAt: optimisticCreatedAt,
+      createdAt: optimisticCreatedAt,
+      updatedAt: optimisticCreatedAt,
+    };
+    const optimisticRootMessage = {
+      id: `${clientRequestId}:root`,
+      role: 'user',
+      text: message,
+      createdAt: optimisticCreatedAt,
+    };
+    setFeedPosts((current) => [optimisticFeedPost, ...current]);
+    queryClient.setQueryData<ChannelFeedPost[]>(
+      chatQueryKeys.feed(activeProjectId, selectedChannelId),
+      (current = []) => [optimisticFeedPost, ...current],
+    );
+    setSelectedThread(optimisticThread);
+    setThreadMessages([optimisticRootMessage]);
+    queryClient.setQueryData(chatQueryKeys.thread(activeProjectId, selectedChannelId, clientRequestId), {
+      thread: optimisticThread,
+      messages: [optimisticRootMessage],
+    });
+    setStreamingReply('');
+    setAssistantPending(false);
+    setInterruptedNotice(undefined);
+    setNewPostMessage('');
+    if (mobileNav.isMobile) {
+      mobileNav.pushThread();
+    }
     try {
-      const result = await createChannelPost(user, activeProjectId, selectedChannelId, message);
-      setFeedPosts((current) => [
+      let resolvedThreadId = clientRequestId;
+      await createChannelPostAndStream(
+        user,
+        activeProjectId,
+        selectedChannelId,
+        message,
         {
-          threadId: result.thread.id,
-          rootMessageId: result.rootMessage.id,
-          rootMessageText: result.rootMessage.text,
-          rootMessageRole: result.rootMessage.role,
-          replyCount: 0,
-          lastMessageAt: result.thread.lastMessageAt,
-          createdAt: result.rootMessage.createdAt,
+          onEvent: (event) => {
+            if (event.event === 'thread_created') {
+              timing.mark('create_response');
+              const thread = event.data.thread as ThreadSummary;
+              const rootMessage = event.data.rootMessage as ThreadMessage;
+              resolvedThreadId = thread.id;
+
+              setFeedPosts((current) => [
+                {
+                  threadId: thread.id,
+                  rootMessageId: rootMessage.id,
+                  rootMessageText: rootMessage.text,
+                  rootMessageRole: rootMessage.role,
+                  replyCount: 0,
+                  lastMessageAt: thread.lastMessageAt,
+                  createdAt: rootMessage.createdAt,
+                },
+                ...current.filter(
+                  (post) => post.clientRequestId !== clientRequestId && post.threadId !== thread.id,
+                ),
+              ]);
+              queryClient.setQueryData<ChannelFeedPost[]>(
+                chatQueryKeys.feed(activeProjectId, selectedChannelId),
+                (current = []) => [
+                  {
+                    threadId: thread.id,
+                    rootMessageId: rootMessage.id,
+                    rootMessageText: rootMessage.text,
+                    rootMessageRole: rootMessage.role,
+                    replyCount: 0,
+                    lastMessageAt: thread.lastMessageAt,
+                    createdAt: rootMessage.createdAt,
+                  },
+                  ...current.filter(
+                    (post) => post.clientRequestId !== clientRequestId && post.threadId !== thread.id,
+                  ),
+                ],
+              );
+              setSelectedThread((current) =>
+                current?.id === clientRequestId
+                  ? {
+                      id: thread.id,
+                      channelId: thread.channelId,
+                      title: thread.title,
+                      lastMessageAt: thread.lastMessageAt,
+                      createdAt: thread.createdAt,
+                      updatedAt: thread.updatedAt,
+                    }
+                  : current,
+              );
+              setThreadMessages((current) =>
+                current.map((entry) =>
+                  entry.id === `${clientRequestId}:root`
+                    ? {
+                        ...entry,
+                        id: rootMessage.id,
+                        text: rootMessage.text,
+                        createdAt: rootMessage.createdAt,
+                      }
+                    : entry,
+                ),
+              );
+              queryClient.removeQueries({
+                queryKey: chatQueryKeys.thread(activeProjectId, selectedChannelId, clientRequestId),
+                exact: true,
+              });
+              queryClient.setQueryData(chatQueryKeys.thread(activeProjectId, selectedChannelId, thread.id), {
+                thread,
+                messages: [
+                  {
+                    id: rootMessage.id,
+                    role: rootMessage.role,
+                    text: rootMessage.text,
+                    createdAt: rootMessage.createdAt,
+                  },
+                ],
+              });
+              return;
+            }
+
+            if (event.event === 'ack') {
+              timing.mark('ack');
+              setAssistantPending(true);
+              return;
+            }
+
+            if (event.event === 'token') {
+              if (!('first_token' in timing.summary().marks)) {
+                timing.mark('first_token');
+              }
+              setStreamingReply((current) => `${current}${String(event.data.text ?? '')}`);
+              return;
+            }
+
+            if (event.event === 'message_saved') {
+              timing.mark('message_saved');
+              setAssistantPending(false);
+              setThreadMessages((current) => [
+                ...current,
+                {
+                  id: String(event.data.id ?? `assistant-${Date.now()}`),
+                  role: String(event.data.role ?? 'assistant'),
+                  text: String(event.data.text ?? ''),
+                  createdAt: String(event.data.createdAt ?? new Date().toISOString()),
+                },
+              ]);
+              queryClient.setQueryData<{
+                thread: ThreadSummary;
+                messages: ThreadMessage[];
+              } | undefined>(
+                chatQueryKeys.thread(activeProjectId, selectedChannelId, resolvedThreadId),
+                (current) =>
+                  current
+                    ? {
+                        ...current,
+                        messages: [
+                          ...current.messages,
+                          {
+                            id: String(event.data.id ?? `assistant-${Date.now()}`),
+                            role: String(event.data.role ?? 'assistant'),
+                            text: String(event.data.text ?? ''),
+                            createdAt: String(event.data.createdAt ?? new Date().toISOString()),
+                          },
+                        ],
+                      }
+                    : current,
+              );
+              setStreamingReply('');
+              return;
+            }
+
+            if (event.event === 'thread_updated') {
+              const nextLastMessageAt =
+                typeof event.data.lastMessageAt === 'string' ? event.data.lastMessageAt : null;
+              const threadId = typeof event.data.threadId === 'string' ? event.data.threadId : resolvedThreadId;
+              const replyCount = typeof event.data.replyCount === 'number' ? event.data.replyCount : undefined;
+
+              if (nextLastMessageAt) {
+                setFeedPosts((current) =>
+                  current.map((post) =>
+                    post.threadId === threadId
+                      ? {
+                          ...post,
+                          lastMessageAt: nextLastMessageAt,
+                          replyCount: replyCount ?? post.replyCount + 1,
+                        }
+                      : post,
+                  ),
+                );
+                queryClient.setQueryData<ChannelFeedPost[]>(
+                  chatQueryKeys.feed(activeProjectId, selectedChannelId),
+                  (current = []) =>
+                    current.map((post) =>
+                      post.threadId === threadId
+                        ? {
+                            ...post,
+                            lastMessageAt: nextLastMessageAt,
+                            replyCount: replyCount ?? post.replyCount + 1,
+                          }
+                        : post,
+                    ),
+                );
+                setSelectedThread((current) =>
+                  current && current.id === threadId
+                    ? {
+                        ...current,
+                        lastMessageAt: nextLastMessageAt,
+                        updatedAt: nextLastMessageAt,
+                      }
+                    : current,
+                );
+              }
+              return;
+            }
+
+            if (event.event === 'done') {
+              timing.mark('done');
+              setStreamingReply('');
+              setAssistantPending(false);
+              setInterruptedNotice(undefined);
+            }
+          },
         },
-        ...current.filter((post) => post.threadId !== result.thread.id),
-      ]);
-      setNewPostMessage('');
-      await handleOpenThread(result.thread.id);
-      await runThreadStream({
-        threadId: result.thread.id,
-        channelId: selectedChannelId,
-      });
+        extractMentionedAgentId(message, STUB_MINDS),
+      );
       reportSuccess();
     } catch (error) {
+      setFeedPosts((current) => current.filter((post) => post.clientRequestId !== clientRequestId));
+      queryClient.setQueryData<ChannelFeedPost[]>(
+        chatQueryKeys.feed(activeProjectId, selectedChannelId),
+        (current = []) => current.filter((post) => post.clientRequestId !== clientRequestId),
+      );
+      setSelectedThread((current) => (current?.id === clientRequestId ? null : current));
+      setThreadMessages((current) => current.filter((entry) => entry.id !== `${clientRequestId}:root`));
+      queryClient.removeQueries({
+        queryKey: chatQueryKeys.thread(activeProjectId, selectedChannelId, clientRequestId),
+        exact: true,
+      });
+      setAssistantPending(false);
       setError('feed', humanizeError(error));
     } finally {
       stopLoading('create-post');
@@ -747,12 +1101,14 @@ export function App() {
     channelId: string;
     message?: string;
     agentId?: string;
+    timing?: ReturnType<typeof createChatTimingFlow>;
   }) {
     if (!user || !activeProjectId) {
       return;
     }
 
     try {
+      setAssistantPending(false);
       await streamThreadReply(
         user,
         activeProjectId,
@@ -761,11 +1117,22 @@ export function App() {
         input.message,
         {
           onEvent: (event) => {
+            if (event.event === 'ack') {
+              input.timing?.mark?.('ack');
+              setAssistantPending(true);
+            }
             if (event.event === 'token') {
+              if (!input.timing) {
+                // no-op
+              } else if (!('first_token' in input.timing.summary().marks)) {
+                input.timing.mark('first_token');
+              }
               setStreamingReply((current) => `${current}${String(event.data.text ?? '')}`);
             }
 
             if (event.event === 'message_saved') {
+              input.timing?.mark?.('message_saved');
+              setAssistantPending(false);
               setThreadMessages((current) => [
                 ...current,
                 {
@@ -807,7 +1174,9 @@ export function App() {
             }
 
             if (event.event === 'done') {
+              input.timing?.mark?.('done');
               setStreamingReply('');
+              setAssistantPending(false);
               setInterruptedNotice(undefined);
             }
           },
@@ -821,6 +1190,7 @@ export function App() {
         setInterruptedNotice('The reply was interrupted before completion.');
         setStreamingReply(error.partialText);
       }
+      setAssistantPending(false);
       throw error;
     }
   }
@@ -838,6 +1208,10 @@ export function App() {
 
     startLoading('reply');
     clearError('thread');
+    const timing = createChatTimingFlow('reply', {
+      log: () => {},
+    });
+    timing.mark('submit');
     const optimisticMessage = {
       ...createOptimisticMessage('user', message),
       retryText: message,
@@ -845,13 +1219,17 @@ export function App() {
     setThreadMessages((current) => [...current, optimisticMessage]);
     setReplyMessage('');
     setStreamingReply('');
+    setAssistantPending(false);
     setInterruptedNotice(undefined);
 
     try {
+      const mentionedAgentId = extractMentionedAgentId(message, STUB_MINDS);
       await runThreadStream({
         threadId: selectedThread.id,
         channelId: selectedChannelId,
         message,
+        ...(mentionedAgentId ? { agentId: mentionedAgentId } : {}),
+        timing,
       });
       reportSuccess();
     } catch (error) {
@@ -915,12 +1293,17 @@ export function App() {
     startLoading('reply');
     clearError('thread');
     setInterruptedNotice(undefined);
+    const timing = createChatTimingFlow('reply-retry', {
+      log: () => {},
+    });
+    timing.mark('submit');
 
     try {
       await runThreadStream({
         threadId: selectedThread.id,
         channelId: selectedChannelId,
         message: failedMessage.retryText,
+        timing,
       });
     } catch (error) {
       setThreadMessages((current) =>
@@ -1231,12 +1614,13 @@ export function App() {
             />
           </div>
 
-          <div className={cn('mobile-thread-shell', mobileNav.isMobile && !selectedThread && 'mobile-pane-hidden')}>
+          <div ref={threadShellRef} className={cn('mobile-thread-shell', mobileNav.isMobile && !selectedThread && 'mobile-pane-hidden')}>
             <ThreadDrawer
               selectedThread={selectedThread}
               channelName={selectedChannel?.name ?? 'channel'}
               threadMessages={threadMessages}
               streamingReply={streamingReply}
+              assistantPending={assistantPending}
               replyMessage={replyMessage}
               isThreadLoading={isLoadingOp('thread')}
               isReplying={isLoadingOp('reply')}
@@ -1289,7 +1673,7 @@ export function App() {
         <Route path="/admin/test">
           <AdminConsole
             user={user}
-            projects={projects}
+            projects={adminProjects.length > 0 ? adminProjects : projects}
             projectName={projectName}
             projectId={projectId}
             adminMessage={adminMessage}
@@ -1319,7 +1703,11 @@ export function App() {
         {user ? (
           <PostAuthRouter
             projects={projects}
-            isLoading={isLoadingOp('projects')}
+            isLoading={isLoadingOp('session')}
+            targetProjectId={bootstrapTargetProjectId}
+            canAccessAdminConsole={canAccessAdminConsole}
+            bootstrapError={sessionBootstrapError}
+            onRetryBootstrap={() => void handleBootstrapSession()}
             onSignOut={() => void signOutUser()}
           />
         ) : (

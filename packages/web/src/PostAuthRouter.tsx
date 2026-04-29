@@ -11,26 +11,61 @@ import { navigate } from './router';
 export type PostAuthRouterProps = {
   projects: AccessibleProjectSummary[];
   isLoading: boolean;
+  targetProjectId: string | null;
+  canAccessAdminConsole: boolean;
+  bootstrapError: string | null;
+  onRetryBootstrap: () => void;
   onSignOut: () => void;
 };
 
-export function PostAuthRouter({ projects, isLoading, onSignOut }: PostAuthRouterProps) {
+export function PostAuthRouter({
+  projects,
+  isLoading,
+  targetProjectId,
+  canAccessAdminConsole,
+  bootstrapError,
+  onRetryBootstrap,
+  onSignOut,
+}: PostAuthRouterProps) {
   useEffect(() => {
     if (isLoading) {
       return;
     }
 
-    if (projects.length >= 1) {
-      navigate(`/chat/${projects[0]!.id}`);
+    if (targetProjectId) {
+      navigate(`/chat/${targetProjectId}`);
+      return;
     }
-  }, [projects, isLoading]);
+
+    if (projects.length === 0 && canAccessAdminConsole && !bootstrapError) {
+      navigate('/admin/test');
+    }
+  }, [bootstrapError, canAccessAdminConsole, isLoading, projects.length, targetProjectId]);
 
   if (isLoading) {
     return (
       <main className="sign-in-screen">
         <div className="sign-in-card">
           <Spinner size="lg" />
-          <p>Loading your workspaces...</p>
+          <p>Opening your mindspace...</p>
+        </div>
+      </main>
+    );
+  }
+
+  if (bootstrapError) {
+    return (
+      <main className="sign-in-screen">
+        <div className="sign-in-card">
+          <h1 className="sign-in-brand">Mastra Mindspace</h1>
+          <p>We couldn&apos;t load your mindspace entry.</p>
+          <p>{bootstrapError}</p>
+          <div className="row gap-3 justify-center">
+            <Button onClick={onRetryBootstrap}>Retry</Button>
+            <Button variant="outline" onClick={onSignOut}>
+              Sign out
+            </Button>
+          </div>
         </div>
       </main>
     );

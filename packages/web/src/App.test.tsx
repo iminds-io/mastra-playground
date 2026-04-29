@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const defaultAuthUser = {
@@ -39,6 +40,33 @@ const authState = {
 };
 
 const api = vi.hoisted(() => ({
+  getSessionBootstrap: vi.fn(async () => ({
+    me: {
+      uid: 'firebase-user-1',
+      email: 'user@example.com',
+      name: 'Demo User',
+    },
+    capabilities: {
+      canAccessAdminConsole: false,
+    },
+    projects: [
+      {
+        id: 'project-123',
+        organizationId: 'org-1',
+        name: 'Alpha Mindspace',
+        slug: 'alpha-mindspace',
+        status: 'active',
+      },
+      {
+        id: 'project-456',
+        organizationId: 'org-1',
+        name: 'Beta Mindspace',
+        slug: 'beta-mindspace',
+        status: 'active',
+      },
+    ],
+    preferredProjectId: 'project-123',
+  })),
   getMe: vi.fn(async () => ({
     uid: 'firebase-user-1',
     email: 'user@example.com',
@@ -87,6 +115,17 @@ const api = vi.hoisted(() => ({
     runId: 'run-123',
     modelId: 'openai/gpt-4.1-mini',
     text: `admin heard: ${message}`,
+  })),
+  listAdminProjects: vi.fn(async () => ({
+    projects: [
+      {
+        id: 'project-999',
+        organizationId: 'org-9',
+        name: 'Gamma Mindspace',
+        slug: 'gamma-mindspace',
+        status: 'active',
+      },
+    ],
   })),
   listProjectChannels: vi.fn(async () => ({
     channels: [
@@ -230,6 +269,76 @@ const api = vi.hoisted(() => ({
       createdAt: '2026-04-09T02:00:00.000Z',
     },
   })),
+  createChannelPostAndStream: vi.fn(async (
+    _user: unknown,
+    _projectId: string,
+    channelId: string,
+    message: string,
+    handlers: {
+      onEvent(event: { event: string; data: Record<string, unknown> }): void;
+    },
+  ) => {
+    handlers.onEvent({
+      event: 'thread_created',
+      data: {
+        thread: {
+          id: 'thread-2',
+          channelId,
+          title: null,
+          lastMessageAt: '2026-04-09T02:00:00.000Z',
+          createdAt: '2026-04-09T02:00:00.000Z',
+          updatedAt: '2026-04-09T02:00:00.000Z',
+        },
+        rootMessage: {
+          id: 'message-2',
+          role: 'user',
+          text: message,
+          createdAt: '2026-04-09T02:00:00.000Z',
+        },
+      },
+    });
+    handlers.onEvent({
+      event: 'ack',
+      data: {
+        threadId: 'thread-2',
+      },
+    });
+    handlers.onEvent({
+      event: 'token',
+      data: {
+        text: 'Working ',
+      },
+    });
+    handlers.onEvent({
+      event: 'token',
+      data: {
+        text: 'through it.',
+      },
+    });
+    handlers.onEvent({
+      event: 'message_saved',
+      data: {
+        id: 'assistant-root',
+        role: 'assistant',
+        text: 'Working through it.',
+        createdAt: '2026-04-09T02:00:00.000Z',
+      },
+    });
+    handlers.onEvent({
+      event: 'thread_updated',
+      data: {
+        threadId: 'thread-2',
+        lastMessageAt: '2026-04-09T02:00:00.000Z',
+        replyCount: 1,
+      },
+    });
+    handlers.onEvent({
+      event: 'done',
+      data: {
+        threadId: 'thread-2',
+      },
+    });
+  }),
   searchMessages: vi.fn(async (_user: unknown, _projectId: string, query: string, options?: { channelId?: string }) => ({
     results: [
       {
@@ -323,11 +432,19 @@ const api = vi.hoisted(() => ({
 
 function createDeferred<T>() {
   let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
   const promise = new Promise<T>((res) => {
     resolve = res;
+  }).catch((error) => {
+    throw error;
   });
 
-  return { promise, resolve };
+  const rejectingPromise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+
+  return { promise: rejectingPromise, resolve, reject };
 }
 
 vi.mock('./firebase', () => ({
@@ -344,14 +461,37 @@ vi.mock('./api', () => api);
 
 import { App } from './App';
 import { signInWithGoogle } from './firebase';
+import { createAppQueryClient } from './queryClient';
 import { Router } from './router';
 
 function renderApp() {
+  const queryClient = createAppQueryClient();
   return render(
-    <Router>
-      <App />
-    </Router>,
+    <QueryClientProvider client={queryClient}>
+      <Router>
+        <App />
+      </Router>
+    </QueryClientProvider>,
   );
+}
+
+function installLocalStorageMock() {
+  const store = new Map<string, string>();
+  Object.defineProperty(window, 'localStorage', {
+    configurable: true,
+    value: {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        store.set(key, String(value));
+      },
+      removeItem: (key: string) => {
+        store.delete(key);
+      },
+      clear: () => {
+        store.clear();
+      },
+    },
+  });
 }
 
 describe('App', () => {
@@ -361,7 +501,8 @@ describe('App', () => {
     EventSourceMock.instances = [];
     authState.user = defaultAuthUser;
     document.documentElement.removeAttribute('data-theme');
-    localStorage.clear();
+    installLocalStorageMock();
+    window.localStorage.clear();
     vi.stubGlobal('matchMedia', (query: string) => ({
       matches: query.includes('dark'),
       media: query,
@@ -393,13 +534,25 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: /open chat mindspace/i }));
 
     await waitFor(() => {
-      expect(api.listAccessibleProjects).toHaveBeenCalledWith(authState.user);
+      expect(api.getSessionBootstrap).toHaveBeenCalledWith(authState.user);
     });
 
     fireEvent.click(screen.getByRole('button', { name: /switch project/i }));
 
     expect(await screen.findByText('Alpha Mindspace')).toBeTruthy();
     expect(screen.getAllByText('Demo Project').length).toBeGreaterThan(0);
+  });
+
+  it('loads the full admin project list automatically on /admin/test', async () => {
+    window.history.pushState({}, '', '/admin/test');
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(api.listAdminProjects).toHaveBeenCalledWith(authState.user);
+    });
+
+    expect(await screen.findByText('Gamma Mindspace')).toBeTruthy();
   });
 
   it('shows the sign-in screen at / when not authenticated', async () => {
@@ -428,13 +581,103 @@ describe('App', () => {
     });
   });
 
+  it('prefers a valid cached project id during authenticated bootstrap', async () => {
+    localStorage.setItem('mastra-mindspace:last-project-id', 'project-456');
+    window.history.pushState({}, '', '/');
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/chat/project-456');
+    });
+  });
+
+  it('falls back to the preferred project when the cached project id is stale', async () => {
+    localStorage.setItem('mastra-mindspace:last-project-id', 'project-missing');
+    window.history.pushState({}, '', '/');
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/chat/project-123');
+    });
+  });
+
+  it('routes admin-only users to /admin/test from the root route', async () => {
+    api.getSessionBootstrap.mockResolvedValueOnce({
+      me: {
+        uid: 'firebase-user-1',
+        email: 'user@example.com',
+        name: 'Demo User',
+      },
+      capabilities: {
+        canAccessAdminConsole: true,
+      },
+      projects: [],
+      preferredProjectId: null as string | null,
+    } as any);
+    window.history.pushState({}, '', '/');
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/admin/test');
+    });
+  });
+
+  it('shows a dedicated root error state when bootstrap fails', async () => {
+    api.getSessionBootstrap.mockRejectedValueOnce(new Error('bootstrap blew up'));
+    window.history.pushState({}, '', '/');
+
+    renderApp();
+
+    expect(await screen.findByText(/couldn't load your mindspace entry/i)).toBeTruthy();
+    expect(screen.queryByText(/don't have access to any projects yet/i)).toBeNull();
+  });
+
+  it('recovers from a failed bootstrap after retry', async () => {
+    api.getSessionBootstrap
+      .mockRejectedValueOnce(new Error('bootstrap blew up'))
+      .mockResolvedValueOnce({
+        me: {
+          uid: 'firebase-user-1',
+          email: 'user@example.com',
+          name: 'Demo User',
+        },
+        capabilities: {
+          canAccessAdminConsole: false,
+        },
+        projects: [
+          {
+            id: 'project-123',
+            organizationId: 'org-1',
+            name: 'Alpha Mindspace',
+            slug: 'alpha-mindspace',
+            status: 'active',
+          },
+        ],
+        preferredProjectId: 'project-123',
+      });
+    window.history.pushState({}, '', '/');
+
+    renderApp();
+
+    expect(await screen.findByText(/couldn't load your mindspace entry/i)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /retry/i }));
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/chat/project-123');
+    });
+  });
+
   it('renders the channel feed as root posts and opens a thread drawer for replies', async () => {
     window.history.pushState({}, '', '/chat/project-123');
 
     renderApp();
 
     await waitFor(() => {
-      expect(api.listAccessibleProjects).toHaveBeenCalledWith(authState.user);
+      expect(api.getSessionBootstrap).toHaveBeenCalledWith(authState.user);
       expect(api.listProjectChannels).toHaveBeenCalledWith(authState.user, 'project-123');
       expect(api.listChannelFeed).toHaveBeenCalledWith(authState.user, 'project-123', 'channel-general');
     });
@@ -522,30 +765,11 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: /send to general/i }));
 
     await waitFor(() => {
-      expect(api.createChannelPost).toHaveBeenCalledWith(
+      expect(api.createChannelPostAndStream).toHaveBeenCalledWith(
         authState.user,
         'project-123',
         'channel-general',
         'Map the rollout by milestone.',
-      );
-    });
-
-    await waitFor(() => {
-      expect(api.getChannelThread).toHaveBeenCalledWith(
-        authState.user,
-        'project-123',
-        'channel-general',
-        'thread-2',
-      );
-    });
-
-    await waitFor(() => {
-      expect(api.streamThreadReply).toHaveBeenCalledWith(
-        authState.user,
-        'project-123',
-        'channel-general',
-        'thread-2',
-        undefined,
         expect.objectContaining({
           onEvent: expect.any(Function),
         }),
@@ -575,9 +799,174 @@ describe('App', () => {
       ).toBe(true);
     });
 
-    expect(screen.getByText('Map the rollout by milestone.')).toBeTruthy();
+    expect(screen.getAllByText('Map the rollout by milestone.').length).toBeGreaterThan(0);
     expect(screen.queryByText('Working through it. (Give me the first step.)')).toBeTruthy();
     expect(screen.getAllByText(/^Working through it\.$/)).toHaveLength(1);
+  });
+
+  it('shows a new thread card immediately before the create-post request resolves', async () => {
+    const deferredCreate = createDeferred<void>();
+
+    api.createChannelPostAndStream.mockImplementationOnce(async (
+      _user: unknown,
+      _projectId: string,
+      channelId: string,
+      message: string,
+      handlers: {
+        onEvent(event: { event: string; data: Record<string, unknown> }): void;
+      },
+    ) => {
+      await deferredCreate.promise;
+      handlers.onEvent({
+        event: 'thread_created',
+        data: {
+          thread: {
+            id: 'thread-optimistic',
+            channelId,
+            title: null,
+            lastMessageAt: '2026-04-09T02:00:00.000Z',
+            createdAt: '2026-04-09T02:00:00.000Z',
+            updatedAt: '2026-04-09T02:00:00.000Z',
+          },
+          rootMessage: {
+            id: 'message-optimistic',
+            role: 'user',
+            text: message,
+            createdAt: '2026-04-09T02:00:00.000Z',
+          },
+        },
+      });
+      handlers.onEvent({ event: 'done', data: { threadId: 'thread-optimistic' } });
+    });
+
+    window.history.pushState({}, '', '/chat/project-123');
+    renderApp();
+
+    await screen.findByRole('button', {
+      name: /open thread for ship the mindspace shell this sprint\./i,
+    });
+
+    fireEvent.change(screen.getByLabelText(/start a post/i), {
+      target: { value: 'Immediate optimistic thread.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /send to general/i }));
+
+    expect(await screen.findByRole('button', { name: /open thread for immediate optimistic thread\./i })).toBeTruthy();
+
+    deferredCreate.resolve();
+  });
+
+  it('opens the new thread immediately with the user root message before thread fetch resolves', async () => {
+    const deferredCreate = createDeferred<void>();
+
+    api.createChannelPostAndStream.mockImplementationOnce(async (
+      _user: unknown,
+      _projectId: string,
+      channelId: string,
+      message: string,
+      handlers: {
+        onEvent(event: { event: string; data: Record<string, unknown> }): void;
+      },
+    ) => {
+      await deferredCreate.promise;
+      handlers.onEvent({
+        event: 'thread_created',
+        data: {
+          thread: {
+            id: 'thread-optimistic-drawer',
+            channelId,
+            title: null,
+            lastMessageAt: '2026-04-09T02:00:00.000Z',
+            createdAt: '2026-04-09T02:00:00.000Z',
+            updatedAt: '2026-04-09T02:00:00.000Z',
+          },
+          rootMessage: {
+            id: 'message-optimistic-drawer',
+            role: 'user',
+            text: message,
+            createdAt: '2026-04-09T02:00:00.000Z',
+          },
+        },
+      });
+      handlers.onEvent({ event: 'done', data: { threadId: 'thread-optimistic-drawer' } });
+    });
+
+    window.history.pushState({}, '', '/chat/project-123');
+    renderApp();
+
+    await screen.findByRole('button', {
+      name: /open thread for ship the mindspace shell this sprint\./i,
+    });
+
+    fireEvent.change(screen.getByLabelText(/start a post/i), {
+      target: { value: 'Optimistic drawer root message.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /send to general/i }));
+
+    expect(await screen.findByRole('button', { name: /close thread/i })).toBeTruthy();
+    expect(screen.getAllByText('Optimistic drawer root message.').length).toBeGreaterThan(0);
+    expect(api.getChannelThread).not.toHaveBeenCalledWith(
+      authState.user,
+      'project-123',
+      'channel-general',
+      expect.any(String),
+    );
+
+    deferredCreate.resolve();
+  });
+
+  it('shows an assistant placeholder immediately on stream ack before the first token arrives', async () => {
+    api.createChannelPostAndStream.mockImplementationOnce(async (
+      _user: unknown,
+      _projectId: string,
+      channelId: string,
+      message: string,
+      handlers: {
+        onEvent(event: { event: string; data: Record<string, unknown> }): void;
+      },
+    ) => {
+      handlers.onEvent({
+        event: 'thread_created',
+        data: {
+          thread: {
+            id: 'thread-ack',
+            channelId,
+            title: null,
+            lastMessageAt: '2026-04-09T02:00:00.000Z',
+            createdAt: '2026-04-09T02:00:00.000Z',
+            updatedAt: '2026-04-09T02:00:00.000Z',
+          },
+          rootMessage: {
+            id: 'message-ack-root',
+            role: 'user',
+            text: message,
+            createdAt: '2026-04-09T02:00:00.000Z',
+          },
+        },
+      });
+      handlers.onEvent({
+        event: 'ack',
+        data: {
+          threadId: 'thread-ack',
+        },
+      });
+
+      await new Promise(() => {});
+    });
+
+    window.history.pushState({}, '', '/chat/project-123');
+    renderApp();
+
+    await screen.findByRole('button', {
+      name: /open thread for ship the mindspace shell this sprint\./i,
+    });
+
+    fireEvent.change(screen.getByLabelText(/start a post/i), {
+      target: { value: 'Ack placeholder root.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /send to general/i }));
+
+    expect(await screen.findByText(/typing\.\.\./i)).toBeTruthy();
   });
 
   it('submits a new post on Cmd+Enter in the composer', async () => {
@@ -594,11 +983,13 @@ describe('App', () => {
     fireEvent.keyDown(composer, { key: 'Enter', metaKey: true });
 
     await waitFor(() => {
-      expect(api.createChannelPost).toHaveBeenCalledWith(
+      expect(api.createChannelPostAndStream).toHaveBeenCalledWith(
         authState.user,
         'project-123',
         'channel-general',
         'Keyboard shortcut test.',
+        expect.objectContaining({ onEvent: expect.any(Function) }),
+        undefined,
       );
     });
   });
@@ -709,7 +1100,7 @@ describe('App', () => {
   });
 
   it('shows an error near the feed when post creation fails and auto-clears it', async () => {
-    api.createChannelPost.mockRejectedValueOnce(new Error('Network failure'));
+    api.createChannelPostAndStream.mockRejectedValueOnce(new Error('Network failure'));
 
     window.history.pushState({}, '', '/chat/project-123');
     renderApp();
