@@ -11,6 +11,9 @@ create table if not exists project_memberships (
 create index if not exists project_memberships_project_lookup_idx
   on project_memberships(project_id, role);
 
+create index if not exists project_memberships_user_lookup_idx
+  on project_memberships(user_id, project_id);
+
 create table if not exists project_invitations (
   id uuid primary key default gen_random_uuid(),
   project_id uuid not null references projects(id) on delete cascade,

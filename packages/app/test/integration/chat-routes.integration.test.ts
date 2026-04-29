@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { createApp } from '../../src/server/factory';
+import { AccessDeniedError } from '@mastra-mindspace/platform';
 
 const verifiedPrincipal = {
   uid: 'firebase-user-1',
@@ -46,6 +47,30 @@ describe('chat routes', () => {
           slug: 'general',
         },
       ],
+    });
+  });
+
+  it('returns 403 when the authenticated user does not have access to the project', async () => {
+    const app = await createApp({
+      tokenVerifier: {
+        async verifyIdToken() {
+          return verifiedPrincipal;
+        },
+      },
+      listProjectChannels: async () => {
+        throw new AccessDeniedError('User does not have access to this project');
+      },
+    });
+
+    const response = await app.request('/api/projects/project-1/channels', {
+      headers: {
+        authorization: 'Bearer demo-token',
+      },
+    });
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      error: 'User does not have access to this project',
     });
   });
 

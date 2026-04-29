@@ -85,6 +85,130 @@ describe('authenticated routes', () => {
     });
   });
 
+  it('returns session bootstrap data for the authenticated principal', async () => {
+    const app = await createApp({
+      tokenVerifier: {
+        async verifyIdToken() {
+          return verifiedPrincipal;
+        },
+      },
+      getSessionBootstrap: async () => ({
+        me: {
+          uid: 'firebase-user-1',
+          email: 'user@example.com',
+          name: 'Demo User',
+        },
+        capabilities: {
+          canAccessAdminConsole: true,
+        },
+        projects: [
+          {
+            id: 'project-1',
+            organizationId: 'org-1',
+            name: 'Alpha Mindspace',
+            slug: 'alpha-mindspace',
+            status: 'active',
+          },
+        ],
+        preferredProjectId: 'project-1',
+      }),
+    });
+
+    const response = await app.request('/api/session/bootstrap', {
+      headers: {
+        authorization: 'Bearer demo-token',
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      me: {
+        uid: 'firebase-user-1',
+        email: 'user@example.com',
+        name: 'Demo User',
+      },
+      capabilities: {
+        canAccessAdminConsole: true,
+      },
+      projects: [
+        {
+          id: 'project-1',
+          organizationId: 'org-1',
+          name: 'Alpha Mindspace',
+          slug: 'alpha-mindspace',
+          status: 'active',
+        },
+      ],
+      preferredProjectId: 'project-1',
+    });
+  });
+
+  it('lists all projects on the admin dev route for allowlisted admins', async () => {
+    const app = await createApp({
+      adminEmails: ['user@example.com'],
+      tokenVerifier: {
+        async verifyIdToken() {
+          return verifiedPrincipal;
+        },
+      },
+      listAdminProjects: async () => ({
+        projects: [
+          {
+            id: 'project-9',
+            organizationId: 'org-9',
+            name: 'Gamma Mindspace',
+            slug: 'gamma-mindspace',
+            status: 'active',
+          },
+        ],
+      }),
+    });
+
+    const response = await app.request('/api/dev/projects', {
+      headers: {
+        authorization: 'Bearer demo-token',
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      projects: [
+        {
+          id: 'project-9',
+          organizationId: 'org-9',
+          name: 'Gamma Mindspace',
+          slug: 'gamma-mindspace',
+          status: 'active',
+        },
+      ],
+    });
+  });
+
+  it('rejects the admin dev project list for non-allowlisted users', async () => {
+    const app = await createApp({
+      adminEmails: ['someone-else@example.com'],
+      tokenVerifier: {
+        async verifyIdToken() {
+          return verifiedPrincipal;
+        },
+      },
+      listAdminProjects: async () => ({
+        projects: [],
+      }),
+    });
+
+    const response = await app.request('/api/dev/projects', {
+      headers: {
+        authorization: 'Bearer demo-token',
+      },
+    });
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      error: 'Admin access required for dev project listing',
+    });
+  });
+
   it('executes the project wrapper for authenticated agent runs', async () => {
     const app = await createApp({
       tokenVerifier: {
@@ -237,6 +361,59 @@ describe('authenticated routes', () => {
         },
       ],
     });
+  });
+
+  it('streams thread_created and ack events for authenticated root post creation', async () => {
+    const app = await createApp({
+      tokenVerifier: {
+        async verifyIdToken() {
+          return verifiedPrincipal;
+        },
+      },
+      createChannelPostAndStream: async function* () {
+        yield {
+          event: 'thread_created',
+          data: {
+            thread: {
+              id: 'thread-1',
+              channelId: 'channel-1',
+            },
+            rootMessage: {
+              id: 'message-1',
+              text: 'hello',
+            },
+          },
+        };
+        yield {
+          event: 'ack',
+          data: {
+            threadId: 'thread-1',
+          },
+        };
+        yield {
+          event: 'done',
+          data: {
+            threadId: 'thread-1',
+          },
+        };
+      },
+    });
+
+    const response = await app.request('/api/projects/project-1/channels/channel-1/posts/stream', {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer demo-token',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ message: 'hello' }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('text/event-stream');
+    const body = await response.text();
+    expect(body).toContain('event: thread_created');
+    expect(body).toContain('event: ack');
+    expect(body).toContain('"threadId":"thread-1"');
   });
 
   it('lists mindspace-scoped Mastra agents for authenticated project members', async () => {

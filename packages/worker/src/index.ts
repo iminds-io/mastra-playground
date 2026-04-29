@@ -7,11 +7,14 @@ import { S3Filesystem } from '@mastra/s3';
 import { Workspace } from '@mastra/core/workspace';
 
 import {
+  AccessDeniedError,
   ChannelEventEmitter,
   setDatabasePool,
   createMastra,
   createFirebaseTokenVerifier,
   bootstrapProjectForPrincipal,
+  canAccessAdminConsole,
+  createChannelPostAndStreamForPrincipal,
   createChannelPostForPrincipal,
   createProjectChannelForPrincipal,
   createChannelThreadForPrincipal,
@@ -19,6 +22,8 @@ import {
   getChannelThreadForPrincipal,
   listChannelFeedForPrincipal,
   listAccessibleProjectsForPrincipal,
+  listAllProjectsForAdmin,
+  getSessionBootstrapForPrincipal,
   listChannelThreadsForPrincipal,
   listProjectChannelsForPrincipal,
   getProjectGeneralSettingsForPrincipal,
@@ -40,6 +45,7 @@ import {
   listMindspaceMastraWorkflowsForPrincipal,
   createMindspaceMastraWorkflowRunForPrincipal,
   startMindspaceMastraWorkflowForPrincipal,
+  normalizeAdminAllowlist,
   parseAgentVersionFromQuery,
   type MindspaceFactory,
 } from '@mastra-mindspace/platform';
@@ -157,6 +163,14 @@ function createSseResponse(stream: AsyncIterable<StreamEvent>) {
 
 const app = new Hono<HonoEnv>();
 const channelEventEmitter = new ChannelEventEmitter();
+
+app.onError((error, c) => {
+  console.error(error);
+  if (error instanceof AccessDeniedError) {
+    return c.json({ error: error.message }, 403);
+  }
+  return c.json({ error: 'Internal Server Error' }, 500);
+});
 
 app.use('*', async (c, next) => {
   const deps = bootRequest(c.env);
@@ -282,11 +296,7 @@ app.use('/api/mastra/stored/*', async (c, next) => {
   }
 
   const principal = c.get('principal');
-  const allowlist = (c.env.ADMIN_EMAILS ?? '')
-    .split(',')
-    .map((entry) => entry.trim().toLowerCase())
-    .filter((entry) => entry.length > 0);
-
+  const allowlist = normalizeAdminAllowlist(c.env.ADMIN_EMAILS);
   const email = principal.email?.toLowerCase() ?? '';
   if (!email || !allowlist.includes(email)) {
     return c.json({ error: 'Admin access required for stored-agent mutations' }, 403);
@@ -314,6 +324,32 @@ app.get('/api/projects', async (c) => {
   const result = await listAccessibleProjectsForPrincipal({
     firebaseUid: principal.uid,
   });
+  return c.json(result);
+});
+
+app.get('/api/session/bootstrap', async (c) => {
+  const principal = c.get('principal');
+  const result = await getSessionBootstrapForPrincipal({
+    uid: principal.uid,
+    email: principal.email,
+    name: principal.name,
+    ...(c.env.ADMIN_EMAILS ? { adminEmails: c.env.ADMIN_EMAILS } : {}),
+  });
+  return c.json(result);
+});
+
+app.get('/api/dev/projects', async (c) => {
+  const principal = c.get('principal');
+  if (
+    !canAccessAdminConsole({
+      email: principal.email,
+      adminEmails: c.env.ADMIN_EMAILS,
+    })
+  ) {
+    return c.json({ error: 'Admin access required for dev project listing' }, 403);
+  }
+
+  const result = await listAllProjectsForAdmin();
   return c.json(result);
 });
 
@@ -627,6 +663,22 @@ app.post('/api/projects/:projectId/channels/:channelId/posts', async (c) => {
     message: body.message ?? '',
   }, { mastra, mindspaceFactory, channelEventEmitter });
   return c.json(result);
+});
+
+app.post('/api/projects/:projectId/channels/:channelId/posts/stream', async (c) => {
+  const principal = c.get('principal');
+  const mastra = c.get('mastra');
+  const mindspaceFactory = c.get('mindspaceFactory');
+  const body = await c.req.json<{ message?: string; agentId?: string }>();
+  const stream = await createChannelPostAndStreamForPrincipal({
+    firebaseUid: principal.uid,
+    projectId: c.req.param('projectId'),
+    channelId: c.req.param('channelId'),
+    message: body.message ?? '',
+    ...(typeof body.agentId === 'string' ? { agentId: body.agentId } : {}),
+  }, { mastra, mindspaceFactory, channelEventEmitter });
+
+  return createSseResponse(stream);
 });
 
 app.get('/api/projects/:projectId/channels/:channelId/threads', async (c) => {

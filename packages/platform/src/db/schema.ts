@@ -12,3 +12,16 @@ export async function listAppTables(): Promise<string[]> {
 
   return result.rows.map((row: { table_name: string }) => row.table_name);
 }
+
+export async function listAppIndexes(): Promise<string[]> {
+  const result = await getDatabasePool().query<{
+    indexname: string;
+  }>(`
+    select indexname
+    from pg_indexes
+    where schemaname = 'public'
+    order by indexname asc
+  `);
+
+  return result.rows.map((row: { indexname: string }) => row.indexname);
+}

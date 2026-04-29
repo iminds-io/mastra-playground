@@ -35,6 +35,23 @@ export async function listProjectsForFirebaseUid(firebaseUid: string): Promise<P
   return result.rows;
 }
 
+export async function listAllProjects(): Promise<ProjectRecord[]> {
+  const result = await getDatabasePool().query<ProjectRecord>(
+    `
+      select
+        id,
+        organization_id,
+        name,
+        slug,
+        status
+      from projects
+      order by name asc
+    `,
+  );
+
+  return result.rows;
+}
+
 export async function createProject(input: {
   organizationId: string;
   name: string;

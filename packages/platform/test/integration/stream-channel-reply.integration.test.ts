@@ -81,4 +81,52 @@ describe('streamChannelReplyForPrincipal', () => {
       expect(kinds.at(-1)).toBe('done');
     },
   );
+
+  it.skipIf(!process.env.OPENROUTER_API_KEY)(
+    'yields thread_created before ack when creating and streaming a new root post',
+    { timeout: 60_000 },
+    async () => {
+      const { createMastra } = await import('../../src/mastra/create-mastra');
+      const { seedProjectFixture } = await import('../helpers/fixtures');
+      const {
+        createProjectChannelForPrincipal,
+        createChannelPostAndStreamForPrincipal,
+      } = await import('../../src/services/chat');
+
+      const fixture = await seedProjectFixture();
+      const mastra = createMastra(process.env.DATABASE_URL!, {
+        openrouterApiKey: process.env.OPENROUTER_API_KEY!,
+        openrouterModel: process.env.OPENROUTER_MODEL,
+      });
+
+      const channel = await createProjectChannelForPrincipal(
+        {
+          firebaseUid: fixture.user.firebaseUid,
+          projectId: fixture.project.id,
+          name: 'general',
+        },
+        { mastra, mindspaceFactory: fixture.mindspaceFactory },
+      );
+
+      const events: Array<{ event: string; data: Record<string, unknown> }> = [];
+      for await (const ev of createChannelPostAndStreamForPrincipal(
+        {
+          firebaseUid: fixture.user.firebaseUid,
+          projectId: fixture.project.id,
+          channelId: channel.channel.id,
+          message: 'respond with the single word "ok"',
+        },
+        { mastra, mindspaceFactory: fixture.mindspaceFactory },
+      )) {
+        events.push(ev);
+      }
+
+      const kinds = events.map((event) => event.event);
+      expect(kinds[0]).toBe('thread_created');
+      expect(kinds[1]).toBe('ack');
+      expect(kinds).toContain('token');
+      expect(kinds).toContain('message_saved');
+      expect(kinds.at(-1)).toBe('done');
+    },
+  );
 });

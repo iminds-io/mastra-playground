@@ -89,4 +89,38 @@ describe.skipIf(!shouldRun)('worker SSE streaming', { timeout: 180_000 }, () => 
     expect(kinds).toContain('token');
     expect(kinds.at(-1)).toBe('done');
   });
+
+  it('streams thread_created → ack → token(s) → done for new root posts', async () => {
+    const user = await createTestUser();
+    createdUsers.push(user);
+    const token = user.idToken;
+
+    const bootstrapResponse = await fetch(`${baseUrl}/api/dev/bootstrap-project`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ name: `stream-root-${user.uid}` }),
+    });
+    const bootstrap = await bootstrapResponse.json() as {
+      projectId: string;
+      defaultChannelId: string;
+    };
+
+    const response = await fetch(
+      `${baseUrl}/api/projects/${bootstrap.projectId}/channels/${bootstrap.defaultChannelId}/posts/stream`,
+      {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ message: 'respond with a short greeting' }),
+      },
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('text/event-stream');
+
+    const events = await readSseStream(response);
+    const kinds = events.map((e) => e.event);
+    expect(kinds[0]).toBe('thread_created');
+    expect(kinds[1]).toBe('ack');
+    expect(kinds).toContain('token');
+    expect(kinds.at(-1)).toBe('done');
+  });
 });

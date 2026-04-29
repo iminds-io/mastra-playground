@@ -50,4 +50,22 @@ describe.skipIf(!shouldRun)('worker auth middleware', () => {
     expect(body).toHaveProperty('projects');
     expect(Array.isArray(body.projects)).toBe(true);
   });
+
+  it('returns session bootstrap data with a valid Firebase ID token', async () => {
+    const user = await createTestUser();
+    createdUsers.push(user);
+    const response = await fetch(`${baseUrl}/api/session/bootstrap`, {
+      headers: { authorization: `Bearer ${user.idToken}` },
+    });
+
+    expect(response.status).toBe(200);
+    const body = await response.json() as {
+      me: { uid: string; email: string | null; name: string | null };
+      projects: unknown[];
+      preferredProjectId: string | null;
+    };
+    expect(body.me.uid).toBe(user.uid);
+    expect(Array.isArray(body.projects)).toBe(true);
+    expect(body).toHaveProperty('preferredProjectId');
+  });
 });

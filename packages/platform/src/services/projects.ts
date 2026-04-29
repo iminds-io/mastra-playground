@@ -1,4 +1,4 @@
-import { listProjectsForFirebaseUid } from '../db/repositories/projects';
+import { listAllProjects, listProjectsForFirebaseUid } from '../db/repositories/projects';
 
 export type AccessibleProjectSummary = {
   id: string;
@@ -12,6 +12,22 @@ export async function listAccessibleProjectsForPrincipal(input: { firebaseUid: s
   projects: AccessibleProjectSummary[];
 }> {
   const projects = await listProjectsForFirebaseUid(input.firebaseUid);
+
+  return {
+    projects: projects.map((project) => ({
+      id: project.id,
+      organizationId: project.organization_id,
+      name: project.name,
+      slug: project.slug,
+      status: project.status,
+    })),
+  };
+}
+
+export async function listAllProjectsForAdmin(): Promise<{
+  projects: AccessibleProjectSummary[];
+}> {
+  const projects = await listAllProjects();
 
   return {
     projects: projects.map((project) => ({

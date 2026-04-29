@@ -3,8 +3,10 @@ import { MastraServer } from '@mastra/hono';
 import { LocalFilesystem, LocalSandbox, Workspace } from '@mastra/core/workspace';
 
 import {
+  AccessDeniedError,
   ChannelEventEmitter,
   bootstrapProjectForPrincipal,
+  createChannelPostAndStreamForPrincipal,
   createChannelPostForPrincipal,
   createProjectChannelForPrincipal,
   createChannelThreadForPrincipal,
@@ -14,11 +16,14 @@ import {
   getChannelThreadForPrincipal,
   listChannelFeedForPrincipal,
   listAccessibleProjectsForPrincipal,
+  listAllProjectsForAdmin,
+  getSessionBootstrapForPrincipal,
   listChannelThreadsForPrincipal,
   listProjectChannelsForPrincipal,
   getProjectGeneralSettingsForPrincipal,
   updateProjectGeneralSettingsForPrincipal,
   archiveProjectForPrincipal,
+  canAccessAdminConsole,
   listProjectSettingsMembersForPrincipal,
   inviteProjectMemberForPrincipal,
   removeProjectMemberForPrincipal,
@@ -30,6 +35,7 @@ import {
   summarizeProjectDocsForPrincipal,
   runMindspaceSupervisorForPrincipal,
   listMindspaceMastraAgentsForPrincipal,
+  normalizeAdminAllowlist,
   generateMindspaceMastraAgentForPrincipal,
   streamMindspaceMastraAgentForPrincipal,
   listMindspaceMastraWorkflowsForPrincipal,
@@ -133,6 +139,38 @@ type AppFactoryParams = {
       slug: string;
       status: string;
     }>;
+  }>;
+  listAdminProjects?: () => Promise<{
+    projects: Array<{
+      id: string;
+      organizationId: string;
+      name: string;
+      slug: string;
+      status: string;
+    }>;
+  }>;
+  getSessionBootstrap?: (input: {
+    uid: string;
+    email: string | null;
+    name: string | null;
+    adminEmails?: string[] | string;
+  }) => Promise<{
+    me: {
+      uid: string;
+      email: string | null;
+      name: string | null;
+    };
+    capabilities: {
+      canAccessAdminConsole: boolean;
+    };
+    projects: Array<{
+      id: string;
+      organizationId: string;
+      name: string;
+      slug: string;
+      status: string;
+    }>;
+    preferredProjectId: string | null;
   }>;
   getProjectSettingsGeneral?: (input: {
     firebaseUid: string;
@@ -331,6 +369,16 @@ type AppFactoryParams = {
       text: string;
       createdAt: string;
     };
+  }>;
+  createChannelPostAndStream?: (input: {
+    firebaseUid: string;
+    projectId: string;
+    channelId: string;
+    message: string;
+    agentId?: string;
+  }) => AsyncGenerator<{
+    event: string;
+    data: Record<string, unknown>;
   }>;
   searchChannelMessages?: (input: {
     firebaseUid: string;
@@ -580,6 +628,14 @@ export async function createApp(params: AppFactoryParams = {}) {
   const app = new Hono<AppBindings>();
   app.onError((error, c) => {
     console.error(error);
+    if (error instanceof AccessDeniedError) {
+      return c.json(
+        {
+          error: error.message,
+        },
+        403,
+      );
+    }
     return c.json(
       {
         error: 'Internal Server Error',
@@ -767,6 +823,39 @@ export async function createApp(params: AppFactoryParams = {}) {
       firebaseUid: principal.uid,
     });
 
+    return c.json(result);
+  });
+  app.get('/api/session/bootstrap', async (c) => {
+    const principal = c.get('principal');
+    const adminEmails = params.adminEmails ?? process.env.ADMIN_EMAILS;
+    const bootstrapInput = adminEmails
+      ? {
+          uid: principal.uid,
+          email: principal.email,
+          name: principal.name,
+          adminEmails,
+        }
+      : {
+          uid: principal.uid,
+          email: principal.email,
+          name: principal.name,
+        };
+    const result = await (params.getSessionBootstrap ?? getSessionBootstrapForPrincipal)(bootstrapInput);
+
+    return c.json(result);
+  });
+  app.get('/api/dev/projects', async (c) => {
+    const principal = c.get('principal');
+    if (
+      !canAccessAdminConsole({
+        email: principal.email,
+        adminEmails: params.adminEmails ?? process.env.ADMIN_EMAILS,
+      })
+    ) {
+      return c.json({ error: 'Admin access required for dev project listing' }, 403);
+    }
+
+    const result = await (params.listAdminProjects ?? listAllProjectsForAdmin)();
     return c.json(result);
   });
   app.route('/api/projects', projectsRoutes);
@@ -1007,6 +1096,20 @@ export async function createApp(params: AppFactoryParams = {}) {
 
     return c.json(result);
   });
+  app.post('/api/projects/:projectId/channels/:channelId/posts/stream', async (c) => {
+    const principal = c.get('principal');
+    const body = await c.req.json<{ message?: string; agentId?: string }>();
+    const stream = await (params.createChannelPostAndStream ??
+      ((input) => createChannelPostAndStreamForPrincipal(input, platformDeps)))({
+      firebaseUid: principal.uid,
+      projectId: c.req.param('projectId'),
+      channelId: c.req.param('channelId'),
+      message: body.message ?? '',
+      ...(typeof body.agentId === 'string' ? { agentId: body.agentId } : {}),
+    });
+
+    return createSseResponse(stream);
+  });
   app.get('/api/projects/:projectId/channels/:channelId/threads', async (c) => {
     const principal = c.get('principal');
     const result = await (params.listChannelThreads ??
@@ -1077,11 +1180,7 @@ export async function createApp(params: AppFactoryParams = {}) {
   // Admin gate for /api/mastra/stored/* writes. Must be registered BEFORE the
   // MastraServer mount so it intercepts mutating methods first.
   const rawAllowlist = params.adminEmails ?? process.env.ADMIN_EMAILS;
-  const adminAllowlist = (Array.isArray(rawAllowlist)
-    ? rawAllowlist
-    : (rawAllowlist ?? '').split(','))
-    .map((entry) => entry.trim().toLowerCase())
-    .filter((entry) => entry.length > 0);
+  const adminAllowlist = normalizeAdminAllowlist(rawAllowlist);
 
   app.use('/api/mastra/stored/*', async (c, next) => {
     const method = c.req.method.toUpperCase();

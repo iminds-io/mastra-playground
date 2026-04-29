@@ -5,6 +5,7 @@ import type { MastraDBMessage, StorageThreadType } from '@mastra/core/memory';
 
 import { AccessDeniedError } from './access-control';
 import type { ChannelEvent } from './channel-events';
+import { createServiceTimingFlow } from './chat-timings';
 import { createSeedThread } from './channel-seeding';
 import { createProjectChannel, getProjectChannelById, listProjectChannels } from '../db/repositories/project-channels';
 import { getChannelThreadById, listChannelThreads, createChannelThread, updateChannelThreadMetadata } from '../db/repositories/channel-threads';
@@ -65,7 +66,7 @@ export type ChatReply = {
 };
 
 export type ChatStreamEvent = {
-  event: 'ack' | 'token' | 'message_saved' | 'thread_updated' | 'done' | 'error';
+  event: 'thread_created' | 'ack' | 'token' | 'message_saved' | 'thread_updated' | 'done' | 'error';
   data: Record<string, unknown>;
 };
 
@@ -344,6 +345,10 @@ export async function createChannelPostForPrincipal(input: {
   thread: ChatThreadSummary;
   rootMessage: ChatMessageRecord;
 }> {
+  const timing = createServiceTimingFlow('create-channel-post', {
+    log: () => {},
+  });
+  timing.mark('load_project_context');
   const { projectContext, channel } = await requireProjectChannel(input);
   const text = input.message.trim();
 
@@ -356,6 +361,7 @@ export async function createChannelPostForPrincipal(input: {
     ownerUserId: projectContext.actorUserId,
     title: null,
   });
+  timing.mark('create_thread_and_root_message');
   const memoryStore = await getMemoryStore(deps.mastra);
   const now = new Date();
   const resourceId = deriveChannelResourceId(channel.id);
@@ -384,6 +390,7 @@ export async function createChannelPostForPrincipal(input: {
     threadId: thread.id,
     lastMessageAt: now,
   });
+  timing.mark('message_persisted');
 
   emitChannelEvent(deps, channel.id, {
     event: 'new_thread',
@@ -405,6 +412,45 @@ export async function createChannelPostForPrincipal(input: {
     },
     rootMessage: toChatMessages([rootMessage])[0]!,
   };
+}
+
+export async function* createChannelPostAndStreamForPrincipal(input: {
+  firebaseUid: string;
+  projectId: string;
+  channelId: string;
+  message: string;
+  agentId?: string;
+}, deps: ChatServiceDeps): AsyncGenerator<ChatStreamEvent> {
+  const post = await createChannelPostForPrincipal(
+    {
+      firebaseUid: input.firebaseUid,
+      projectId: input.projectId,
+      channelId: input.channelId,
+      message: input.message,
+    },
+    deps,
+  );
+
+  yield {
+    event: 'thread_created',
+    data: {
+      thread: post.thread,
+      rootMessage: post.rootMessage,
+    },
+  };
+
+  for await (const event of streamChannelReplyForPrincipal(
+    {
+      firebaseUid: input.firebaseUid,
+      projectId: input.projectId,
+      channelId: input.channelId,
+      threadId: post.thread.id,
+      ...(input.agentId ? { agentId: input.agentId } : {}),
+    },
+    deps,
+  )) {
+    yield event;
+  }
 }
 
 export async function listChannelThreadsForPrincipal(input: {
@@ -546,6 +592,10 @@ export async function* streamChannelReplyForPrincipal(input: {
   message?: string;
   agentId?: string;
 }, deps: ChatServiceDeps): AsyncGenerator<ChatStreamEvent> {
+  const timing = createServiceTimingFlow('stream-channel-reply', {
+    log: () => {},
+  });
+  timing.mark('load_project_context');
   const { projectContext, channel } = await requireProjectChannel(input);
   const thread = await getChannelThreadById({
     channelId: channel.id,
@@ -563,6 +613,7 @@ export async function* streamChannelReplyForPrincipal(input: {
     threadId: thread.id,
     mindspaceFactory: deps.mindspaceFactory,
   });
+  timing.mark('resolve_mindspace');
   const memoryStore = await getMemoryStore(deps.mastra);
   const messageInput = input.message?.trim()
     ? input.message.trim()
@@ -586,6 +637,7 @@ export async function* streamChannelReplyForPrincipal(input: {
       resource: execution.resourceId,
     },
   });
+  timing.mark('agent_stream_start');
 
   yield {
     event: 'ack',
@@ -606,6 +658,9 @@ export async function* streamChannelReplyForPrincipal(input: {
   });
 
   for await (const token of stream.textStream) {
+    if (!('first_token_seen' in timing.summary().phases)) {
+      timing.mark('first_token_seen');
+    }
     yield {
       event: 'token',
       data: {
@@ -637,6 +692,7 @@ export async function* streamChannelReplyForPrincipal(input: {
   });
 
   if (assistantMessage) {
+    timing.mark('message_persisted');
     yield {
       event: 'message_saved',
       data: {
