@@ -420,8 +420,9 @@ curl -N -X POST "$API_BASE_URL/api/projects/$PROJECT_ID/channels/$CHANNEL_ID/thr
   -d '{"message":"Give me a short plan."}'
 ```
 
-Domain streaming events currently use:
+The chat-streaming endpoints emit events from this union (`/messages/stream` skips `thread_created`; `/posts/stream` emits it first because it also creates the thread):
 
+- `thread_created` (only `/posts/stream`)
 - `ack`
 - `token`
 - `message_saved`
@@ -515,9 +516,10 @@ curl "$API_BASE_URL/api/mastra/agents" \
   -H "Authorization: Bearer $FIREBASE_ID_TOKEN"
 ```
 
-Current code-defined agents:
+Current code-defined agents (registry keys, as returned by `/api/mastra/agents`):
 
-- `project-agent`
+- `projectAgent`
+- `librarian`
 - `summarizer`
 - `mindspaceReviewer`
 - `mindspace-supervisor`

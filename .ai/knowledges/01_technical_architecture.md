@@ -1,6 +1,6 @@
 # Technical Architecture — mastra-mindspace
 
-**Status:** Living document. Reflects the current worktree as of 2026-04-23.
+**Status:** Living document. Reflects the current worktree as of 2026-05-03.
 **Scope:** Complete technical picture: packages, runtime targets, data flow, deployment, testing, and known gotchas.
 **Reuse Guide:** For porting this architecture into another project, see [`03_porting_and_reusing_mastra_mindspace.md`](./03_porting_and_reusing_mastra_mindspace.md).
 
@@ -52,13 +52,17 @@ The business-logic core. Contains every domain operation the API performs. Runti
 |---|---|
 | `auth/claims`, `auth/firebase-token-verifier`, `auth/jwks-cache` | Verify Firebase ID tokens. Fetches Google's x509 certificates and caches them per worker instance. |
 | `db/context` | Injectable pool holder. `setDatabasePool()` / `getDatabasePool()`. |
-| `db/repositories/*` | Thin query wrappers for `organizations`, `users`, `memberships`, `projects`, `project-channels`, `channel-threads`, `mindspace-roots`, `mindspace-bindings`. Each function calls `getDatabasePool().query(...)`. |
+| `db/repositories/*` | Thin query wrappers for `organizations`, `users`, `memberships` (covers both `organization_memberships` and `project_memberships`), `projects`, `project-channels`, `channel-threads`, `project-invitations`, `project-mind-configs`, `mindspace-roots`, `mindspace-bindings`, and `search` (channel-message search joining Mastra's message store with platform thread/channel metadata). Each function calls `getDatabasePool().query(...)`. |
 | `platform-deps` | Explicit runtime dependency types. `PlatformDeps` carries `{ mastra, mindspaceFactory }`; entry points construct these dependencies and pass them into principal-flow services instead of relying on a global mindspace factory. |
 | `mastra/create-mastra` | `createMastra(connectionString, agentConfig)` — returns a Mastra instance with registered agents/workflows, Postgres storage, and a registered `MastraEditor`. Agents and workflows come from the local registries. |
 | `mastra/storage` | `createMastraStorage()` + `initMastraSchema()` helper. Injects a Neon-backed Pool into `@mastra/pg`'s `PostgresStore`. |
 | `mastra/agents/registry` | Central code-defined agent registry consumed by `createMastra()`. Keeps new specialists/supervisors out of the Mastra factory import list. |
 | `mastra/workflows/registry` | Central code-defined workflow registry consumed by `createMastra()`. |
-| `mastra/agents/project-agent` | Original chat-style agent. Uses OpenRouter for the model, binds the runtime `Workspace` from `RequestContext`, and registers the full read/list/write mindspace toolkit. `Memory` is configured with `observationalMemory: false` for CF compatibility. |
+| `mastra/registry-metadata` | Per-primitive `{ id, capability, operations, minRole?, exposed }` metadata consumed by the mindspace gateway to decide which agents/workflows are reachable from `/api/projects/:projectId/mastra/*` and what role is required. Drives gateway exposure policy explicitly instead of inferring it from object internals. |
+| `mastra/agents/build-agent` | Shared `buildMindspaceAgent({ id, name, description, instructions, toolkit, config, agents?, workflows?, defaultOptions? })` factory used by every code-defined agent. Wires `new Memory({ options: { observationalMemory: false } })` and the runtime `workspace` binding from `RequestContext` so individual agent files don't repeat the boilerplate. |
+| `mastra/agents/model.ts` | `AgentModelConfig` type and OpenRouter model resolution shared by all agents. |
+| `mastra/agents/project-agent` | Original chat-style agent. Uses OpenRouter for the model, binds the runtime `Workspace` from `RequestContext`, and registers the full read/list/write mindspace toolkit. `Memory` is configured with `observationalMemory: false` for CF compatibility (via `build-agent`). |
+| `mastra/agents/librarian` | Channel guide / knowledge navigator. Helps users understand channels and orient in the mindspace. Uses the shared mindspace toolkit and the same Memory/workspace binding as `project-agent`. Gateway-classified as read-capable but `exposed: false` (kept off the public mindspace gateway). |
 | `mastra/agents/summarizer` | Second agent that summarizes mindspace documents. Uses the same Memory/workspace binding pattern but registers only the read-only toolkit. |
 | `mastra/agents/mindspace-reviewer` | Read-only specialist that reviews mindspace files for implementation risks, missing tests, stale docs, and architecture gaps. Intended for supervisor delegation. |
 | `mastra/agents/mindspace-supervisor` | Read-only supervisor agent that coordinates `summarizer`, `mindspaceReviewer`, and safe workflows through Mastra's native supervisor-agent behavior (`generate` / `stream`, not deprecated `.network()`). |
@@ -69,11 +73,19 @@ The business-logic core. Contains every domain operation the API performs. Runti
 | `mastra/execution/request-context` | `ProjectAgentRequestContext` type + seeding helpers used by `build-execution-context`. |
 | `mastra/version` | Agent version targeting helpers. `parseAgentVersionFromQuery(source)` reads `?versionId=` / `?status=` from a query source (URLSearchParams or anything with `.get(name): string | null`). `getAgentWithVersion(mastra, id, version?)` is **async** — it awaits `mastra.getAgentById(id, version)` (which returns `Promise<Agent>`) and falls through to the sync `mastra.getAgent(id)` when no version is set. |
 | `services/access-control` | Throws `AccessDeniedError` for authorization failures. |
+| `services/admin-access` | `normalizeAdminAllowlist()` + `canAccessAdminConsole()` — pure helpers that decide whether a verified email is in the `ADMIN_EMAILS` allowlist (case-insensitive, comma-separated). Used by `session-bootstrap` and the editor admin gate. |
 | `services/audit` | Records `mindspace_events` rows for control-plane observability. |
-| `services/chat` | High-level chat operations: create channels/threads, post messages, list feeds, stream SSE replies. |
-| `services/dev-bootstrap` | `bootstrapProjectForPrincipal()` — one-shot: creates org, user, membership, project, default channel, and provisions a mindspace. |
+| `services/chat` | High-level chat operations: create channels/threads, post messages, list feeds, stream SSE replies. Emits `ChannelEvent`s (see `channel-events`/`channel-event-emitter`) and uses `chat-timings` for phase instrumentation. |
+| `services/chat-timings` | `createServiceTimingFlow()` — phase/duration timing helper used by chat to attribute latency to identifiable phases (auth, project-context, mindspace-resolve, agent, persist). Pure, no I/O. |
+| `services/channel-events` | Shared `ChannelEvent` / `ChannelEventType` types (`new_thread`, `new_message`, `thread_updated`, `mind_streaming`, `heartbeat`) — the contract for SSE channel-level fan-out. |
+| `services/channel-event-emitter` | `ChannelEventEmitter` — in-process pub/sub for `ChannelEvent`s, scoped to a single runtime instance (multi-instance fan-out would need external pub/sub). Subscribed to by `GET /api/projects/:projectId/channels/:channelId/events`. |
+| `services/channel-seeding` | `createSeedThread()` — creates the librarian-mention seed thread that orients new channels. Used by channel-creation flows and `dev-bootstrap`. |
+| `services/dev-bootstrap` | `bootstrapProjectForPrincipal()` — one-shot: creates org, user, membership, project, default channel, seed thread, and provisions a mindspace. |
 | `services/project-context` | `loadProjectContext()` — authorization query that joins user → membership → project. Throws `AccessDeniedError` if the user has no role on the project. |
 | `services/projects` | `listAccessibleProjectsForPrincipal()`. |
+| `services/search` | `searchChannelMessagesForPrincipal()` — auth-gated channel-message search. Validates project access via `loadProjectContext` and delegates to `db/repositories/search` with simple paging (page size 20). |
+| `services/session-bootstrap` | `getSessionBootstrap()` — unified `/api/session/bootstrap` payload: `{ me, capabilities: { canAccessAdminConsole }, projects, preferredProjectId }`. Lets the web client load principal + project list + admin capability in one round-trip. |
+| `services/settings` | Project-settings operations behind `/api/projects/:projectId/settings/*`: rename project, archive, list/invite/revoke members, list/update mind configs (`project_mind_configs`). Reads/writes through the corresponding repositories. |
 | `services/summarization` | Convenience mindspace-scoped product surface for the summarizer agent. `summarizeProjectDocsForPrincipal(input, { mastra, mindspaceFactory, version? })` authorizes the caller, resolves the mindspace, builds an execution context, awaits `getAgentWithVersion`, and calls `.generate()`. |
 | `services/supervisor` | Convenience mindspace-scoped product surface for the mindspace supervisor. `runMindspaceSupervisorForPrincipal(input, { mastra, mindspaceFactory, version? })` authorizes the caller, resolves the mindspace, builds execution context, and calls the supervisor with capped delegation options. |
 | `services/mindspace-mastra-gateway` | Mindspace-scoped gateway over Mastra primitives. Lists permitted agents/workflows, injects trusted project/mindspace context, derives server-owned resource/thread ids, and invokes agent/workflow SDK operations. |
@@ -191,23 +203,32 @@ The deployed worker uses `DATABASE_URL` as `neondb_owner` against `mindcloud-tes
 
 ## 5. Data model
 
-### Control plane (platform-managed tables, 12 total)
+### Control plane (platform-managed tables, 15 total)
+
+14 product tables plus `schema_migrations`. Listed below in the order they appear across migrations 001–004.
 
 ```
-organizations           → top-level tenant
-users                   → Firebase UID → internal user ID
-organization_memberships→ users × organizations with roles
-projects                → projects scoped to an org
-project_channels        → chat channels scoped to a project
-channel_threads         → conversation threads within a channel
-
-mindspace_roots         → path + status for a project's filesystem
-mindspace_bindings      → pins an agent ref/version to a project's mindspace
-mindspace_locks         → distributed mutex for write/command operations
-mindspace_events        → audit log
+organizations            → top-level tenant
+users                    → Firebase UID → internal user ID
+organization_memberships → users × organizations with roles
+projects                 → projects scoped to an org
+mindspace_roots          → path + status for a project's filesystem
+mindspace_bindings       → pins an agent ref/version to a project's mindspace
+mindspace_locks          → distributed mutex for write/command operations
+mindspace_events         → audit log
 mindspace_provisioning_jobs → provisioning tracking
-schema_migrations       → applied migration versions (managed by migrate.ts)
+
+project_channels         → chat channels scoped to a project
+channel_threads          → conversation threads within a channel
+
+project_memberships      → users × projects with roles (project-scoped, supersedes per-project organization-membership reads)
+project_invitations      → pending invitations to a project (unique per (project_id, lower(email)) while status='pending')
+project_mind_configs     → per-project enable/icon/blurb/prompt overrides for code-defined agents (joined by agent_id)
+
+schema_migrations        → applied migration versions (managed by migrate.ts)
 ```
+
+Migration 004 also seeds `project_memberships` from existing `organization_memberships` and seeds a default `project_mind_configs` row for each code-defined agent (`project-agent`, `librarian`, `summarizer`, `mindspace-reviewer`, `mindspace-supervisor`) for every existing project. **Note:** `project_mind_configs.agent_id` uses the kebab-case form (`project-agent`, `mindspace-reviewer`) while the agent registry exposes most agents under camelCase keys (`projectAgent`, `mindspaceReviewer`); the join from a config to a registry agent is product-policy, not a one-to-one literal-string match.
 
 Migrations live in `packages/platform/src/db/migrations/*.sql` and are applied by `packages/platform/src/db/migrate.ts` via `pnpm --filter @mastra-mindspace/platform db:migrate`.
 
@@ -247,16 +268,21 @@ All `/api/*` routes require a `Bearer <firebase-id-token>` header. The worker's 
 | Route | Method | Purpose |
 |---|---|---|
 | `/api/me` | GET | Return the authenticated principal |
+| `/api/session/bootstrap` | GET | Unified first-load payload: `{ me, capabilities: { canAccessAdminConsole }, projects, preferredProjectId }`. Used by the web client to avoid serial round-trips. |
 | `/api/projects` | GET | List projects accessible to the principal |
 | `/api/dev/bootstrap-project` | POST | One-shot: create org+user+membership+project+channel+mindspace |
+| `/api/dev/projects` | GET | Diagnostic listing of projects the principal can reach, plus mindspace-binding state. Authenticated; intended for local dev tooling. |
 | `/api/projects/:projectId/admin/test` | POST | Run the project agent with a plain message (diagnostic) |
+| `/api/projects/:projectId/search` | GET | Search channel messages within a project. Auth-gated; pages of 20; supports optional `channelId` scope. |
 | `/api/projects/:projectId/channels` | GET, POST | List / create channels |
 | `/api/projects/:projectId/channels/:channelId/feed` | GET | Feed of root posts across threads in a channel |
+| `/api/projects/:projectId/channels/:channelId/events` | GET | SSE channel-level fan-out (`new_thread`, `new_message`, `thread_updated`, `mind_streaming`, `heartbeat`). Subscribes via in-process `ChannelEventEmitter`; cross-instance fan-out would need external pub/sub. |
 | `/api/projects/:projectId/channels/:channelId/posts` | POST | Create a new thread with a root message |
+| `/api/projects/:projectId/channels/:channelId/posts/stream` | POST | Create a new thread + stream the agent reply as SSE in one round-trip (`thread_created` → `ack` → `token`* → `message_saved` → `thread_updated` → `done`) |
 | `/api/projects/:projectId/channels/:channelId/threads` | GET, POST | List / create threads in a channel |
 | `/api/projects/:projectId/channels/:channelId/threads/:threadId` | GET | Thread details + messages |
 | `/api/projects/:projectId/channels/:channelId/threads/:threadId/messages` | POST | Send message + get agent reply (synchronous) |
-| `/api/projects/:projectId/channels/:channelId/threads/:threadId/messages/stream` | POST | Send message + stream agent reply as SSE (`ack` → `token`* → `done`) |
+| `/api/projects/:projectId/channels/:channelId/threads/:threadId/messages/stream` | POST | Send message + stream agent reply as SSE (`ack` → `token`* → `message_saved` → `thread_updated` → `done`; `error` on failure) |
 | `/api/projects/:projectId/summarize` | POST | Summarize a set of mindspace paths via the `summarizer` agent. Accepts `?versionId=` or `?status=draft\|published` for editor-targeted version selection. |
 | `/api/projects/:projectId/supervise` | POST | Run the read-only mindspace supervisor over a prompt and optional mindspace paths. Accepts `?versionId=` or `?status=draft\|published` for editor-targeted supervisor selection. |
 | `/api/projects/:projectId/mastra/agents` | GET | List mindspace-scoped agents exposed to the authenticated project member. |
@@ -265,6 +291,20 @@ All `/api/*` routes require a `Bearer <firebase-id-token>` header. The worker's 
 | `/api/projects/:projectId/mastra/workflows` | GET | List mindspace-scoped workflows exposed to the authenticated project member. |
 | `/api/projects/:projectId/mastra/workflows/:workflowId/create-run` | POST | Create a workflow run for a permitted workflow. |
 | `/api/projects/:projectId/mastra/workflows/:workflowId/start` | POST | Start a permitted workflow with server-built project/mindspace context. |
+
+#### Project settings — `/api/projects/:projectId/settings/*`
+
+Project-scoped admin operations. Routed through `services/settings` and the corresponding repositories. Authorization is per-project membership role (owner/admin), not the global `ADMIN_EMAILS` allowlist.
+
+| Route | Method | Purpose |
+|---|---|---|
+| `/api/projects/:projectId/settings/general` | GET, PATCH | Read or rename the project (display name, slug). |
+| `/api/projects/:projectId/settings/archive` | POST | Archive the project (soft-delete). |
+| `/api/projects/:projectId/settings/members` | GET | List project memberships and pending invitations. |
+| `/api/projects/:projectId/settings/members/invite` | POST | Create a pending invitation (unique per `(project_id, lower(email))` while `status='pending'`). |
+| `/api/projects/:projectId/settings/members/:membershipId` | DELETE | Remove a project membership. |
+| `/api/projects/:projectId/settings/minds` | GET | List the project's `project_mind_configs` (per-agent enable/icon/blurb/prompt-override). |
+| `/api/projects/:projectId/settings/minds/:mindId` | PATCH | Update a single mind config row. |
 
 The Node app and Worker expose the same domain routes, with thin call sites into shared platform services. Their registration code is intentionally duplicated in `packages/app/src/server/factory.ts` and `packages/worker/src/index.ts`: the Node app mounts `MastraServer` once during `createApp()`, while the Worker creates the Mastra/Hono bridge per `/api/mastra/*` request to keep request-scoped I/O isolated.
 
@@ -305,10 +345,11 @@ This is the main product-facing Mastra API. It mirrors useful Mastra operations 
 6. applies primitive exposure policy
 7. calls the Mastra SDK
 
-Current first-release exposure policy:
+Current first-release exposure policy (driven by `mastra/registry-metadata`):
 
-- read-capable agents are exposed
+- read-capable agents `summarizer`, `mindspaceReviewer`, and `mindspace-supervisor` are exposed
 - `ingestPipeline` is exposed
+- `librarian` is read-capable but `exposed: false` and is intentionally kept off the gateway
 - `projectAgent` is not exposed through the mindspace gateway yet because it is write-capable
 - editor/stored-agent mutation stays on `/api/mastra/stored/*`
 
@@ -437,7 +478,7 @@ See:
 - [`02_testing_strategy_design.md`](../tasks/02_testing_strategy_design.md) — design doc.
 - [`03_testing_implementation_completion.md`](../tasks/03_testing_implementation_completion.md) — what was built and why.
 
-Every integration/E2E run creates a **fresh Neon branch** with all 39 tables (12 platform + 27 Mastra), runs tests, and deletes the branch on teardown. Cleanup failures fail the test run. Firebase test users are named `test-<uuid>@test.mastra-mindspace.local` and tagged for optional garbage collection.
+Every integration/E2E run creates a **fresh Neon branch** with all 42 tables (15 platform + 27 Mastra), runs tests, and deletes the branch on teardown. Cleanup failures fail the test run. Firebase test users are named `test-<uuid>@test.mastra-mindspace.local` and tagged for optional garbage collection.
 
 ---
 
@@ -555,9 +596,13 @@ packages/platform/src/
 │   ├── create-mastra.ts                 # Mastra factory (agents + workflows + editor + storage)
 │   ├── storage.ts                       # PostgresStore + initMastraSchema
 │   ├── version.ts                       # parseAgentVersionFromQuery + getAgentWithVersion (async)
+│   ├── registry-metadata.ts             # Per-primitive capability/exposure metadata for the gateway
 │   ├── agents/
 │   │   ├── registry.ts                  # Code-defined agent registry
+│   │   ├── build-agent.ts               # Shared buildMindspaceAgent factory
+│   │   ├── model.ts                     # AgentModelConfig + OpenRouter model resolution
 │   │   ├── project-agent.ts             # Chat agent
+│   │   ├── librarian.ts                 # Channel guide / knowledge navigator
 │   │   ├── summarizer.ts                # Document summarization agent
 │   │   ├── mindspace-reviewer.ts        # Read-only review specialist
 │   │   └── mindspace-supervisor.ts      # Supervisor over read-only specialists/workflows
@@ -572,9 +617,18 @@ packages/platform/src/
 │       └── request-context.ts           # ProjectAgentRequestContext type + seeds
 ├── services/
 │   ├── access-control.ts, audit.ts, projects.ts
+│   ├── admin-access.ts                  # ADMIN_EMAILS allowlist helpers
 │   ├── chat.ts                          # Channels/threads/messages + SSE
+│   ├── chat-timings.ts                  # Phase/duration timing helper used by chat
+│   ├── channel-events.ts                # ChannelEvent type contract
+│   ├── channel-event-emitter.ts         # In-process pub/sub for ChannelEvents
+│   ├── channel-seeding.ts               # Librarian-mention seed thread for new channels
 │   ├── dev-bootstrap.ts                 # One-shot project setup
+│   ├── mindspace-mastra-gateway.ts      # Mindspace-scoped Mastra primitive gateway
 │   ├── project-context.ts               # Authorization
+│   ├── search.ts                        # Auth-gated channel-message search
+│   ├── session-bootstrap.ts             # /api/session/bootstrap unified payload
+│   ├── settings.ts                      # /api/projects/:projectId/settings/* operations
 │   ├── summarization.ts                 # Convenience wrapper around summarizer
 │   └── supervisor.ts                    # Convenience wrapper around mindspace supervisor
 ├── mindspace/

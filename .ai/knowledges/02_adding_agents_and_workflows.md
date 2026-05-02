@@ -72,7 +72,7 @@ import type { ProjectAgentConfig } from './project-agent';
 
 export function createMyAgent(config: ProjectAgentConfig = {}) {
   return buildMindspaceAgent({
-    id: 'my-agent' as const,
+    id: 'myAgent' as const,
     name: 'My Agent',
     description: 'Clear description used by supervisors to decide when to delegate.',
     instructions: ({ requestContext }) => [
@@ -98,6 +98,7 @@ import { createMyAgent } from './my-agent';
 
 export function createAgentRegistry(config: ProjectAgentConfig = {}, deps: AgentRegistryDeps) {
   const projectAgent = createProjectAgent(config);
+  const librarian = createLibrarianAgent(config);
   const summarizer = createSummarizerAgent(config);
   const mindspaceReviewer = createMindspaceReviewerAgent(config);
   const myAgent = createMyAgent(config);
@@ -117,6 +118,7 @@ export function createAgentRegistry(config: ProjectAgentConfig = {}, deps: Agent
 
   return {
     projectAgent,
+    librarian,
     summarizer,
     mindspaceReviewer,
     myAgent,

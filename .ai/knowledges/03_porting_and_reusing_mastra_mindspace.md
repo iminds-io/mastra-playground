@@ -147,7 +147,7 @@ The existing entry points are tailored to:
 
 - Hono HTTP app in `packages/app`
 - Cloudflare Worker HTTP app in `packages/worker`
-- browser frontend in `packages/web`
+- browser frontend in `packages/web`, with shared React primitives in `packages/ui`
 
 Those are adapters, not the core.
 
@@ -414,7 +414,7 @@ Typical outcomes:
 - keep `packages/platform`
 - keep `packages/worker`
 - maybe keep `packages/app`
-- maybe remove `packages/web`
+- maybe remove `packages/web` (browser frontend) and `packages/ui` (its shared React primitives) together — they only earn their keep if a browser frontend survives
 - maybe add `packages/telegram-worker`
 
 ### Step 5: Replace product identity
