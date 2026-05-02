@@ -7,4 +7,5 @@ R2_ACCOUNT_ID=your-cf-account-id
 R2_ACCESS_KEY_ID=your-r2-access-key
 R2_SECRET_ACCESS_KEY=your-r2-secret-key
 R2_BUCKET_NAME=mastra-mindspace
-MINDSPACE_ROOT=workspaces
+MINDSPACE_ROOT=mindspaces
+ADMIN_EMAILS=admin@example.com
