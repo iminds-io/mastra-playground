@@ -89,7 +89,6 @@ type MindspaceMastraVersionDeps = {
 };
 
 type AppFactoryParams = {
-  databaseUrl?: string;
   mastra?: ReturnType<typeof createMastra>;
   mindspaceFactory?: MindspaceFactory;
   channelEventEmitter?: ChannelEventEmitter;
