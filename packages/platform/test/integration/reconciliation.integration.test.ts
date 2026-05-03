@@ -5,6 +5,7 @@ import { createOrganization } from '../../src/db/repositories/organizations';
 import { createProject } from '../../src/db/repositories/projects';
 import { createMindspaceRoot, getActiveMindspaceRootByProjectId } from '../../src/db/repositories/mindspace-roots';
 import { reconcileMindspaceForProject } from '../../src/mindspace/reconciliation';
+import { TEST_FIREBASE_PROJECT_ID } from '../helpers/fixtures';
 
 describe('reconcileMindspaceForProject', () => {
   beforeEach(async () => {
@@ -36,7 +37,7 @@ describe('reconcileMindspaceForProject', () => {
 
     const organization = await createOrganization({
       name: 'Demo Org',
-      firebaseProjectId: 'mindmap-aff6a',
+      firebaseProjectId: TEST_FIREBASE_PROJECT_ID,
     });
     const project = await createProject({
       organizationId: organization.id,

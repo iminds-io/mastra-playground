@@ -6,6 +6,7 @@ import { createOrganization } from '../../src/db/repositories/organizations';
 import { createProject } from '../../src/db/repositories/projects';
 import { upsertUser } from '../../src/db/repositories/users';
 import { provisionMindspaceForProject } from '../../src/mindspace/provisioning';
+import { TEST_FIREBASE_PROJECT_ID } from '../helpers/fixtures';
 
 describe('provisionMindspaceForProject', () => {
   beforeEach(async () => {
@@ -34,7 +35,7 @@ describe('provisionMindspaceForProject', () => {
   it('creates the workspace directories and binding rows', async () => {
     const organization = await createOrganization({
       name: 'Demo Org',
-      firebaseProjectId: 'mindmap-aff6a',
+      firebaseProjectId: TEST_FIREBASE_PROJECT_ID,
     });
     const user = await upsertUser({
       firebaseUid: 'firebase-user-1',

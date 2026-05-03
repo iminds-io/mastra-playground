@@ -5,6 +5,7 @@ import { createOrganization } from '../../src/db/repositories/organizations';
 import { createProject } from '../../src/db/repositories/projects';
 import { createMindspaceBinding, getActiveMindspaceBinding } from '../../src/db/repositories/mindspace-bindings';
 import { createMindspaceRoot } from '../../src/db/repositories/mindspace-roots';
+import { TEST_FIREBASE_PROJECT_ID } from '../helpers/fixtures';
 
 describe('workspace bindings', () => {
   beforeEach(async () => {
@@ -28,7 +29,7 @@ describe('workspace bindings', () => {
   it('returns the active agent ref and version', async () => {
     const organization = await createOrganization({
       name: 'Demo Org',
-      firebaseProjectId: 'mindmap-aff6a',
+      firebaseProjectId: TEST_FIREBASE_PROJECT_ID,
     });
     const project = await createProject({
       organizationId: organization.id,

@@ -5,6 +5,7 @@ import { createOrganization } from '../../src/db/repositories/organizations';
 import { createProject } from '../../src/db/repositories/projects';
 import { createMindspaceRoot } from '../../src/db/repositories/mindspace-roots';
 import { createMindspaceLockService } from '../../src/mindspace/locking';
+import { TEST_FIREBASE_PROJECT_ID } from '../helpers/fixtures';
 
 describe('workspace locking', () => {
   let mindspaceRootId: string;
@@ -28,7 +29,7 @@ describe('workspace locking', () => {
 
     const organization = await createOrganization({
       name: 'Lock Org',
-      firebaseProjectId: 'mindmap-aff6a',
+      firebaseProjectId: TEST_FIREBASE_PROJECT_ID,
     });
     const project = await createProject({
       organizationId: organization.id,

@@ -7,6 +7,7 @@ import { createProject } from '../../src/db/repositories/projects';
 import { upsertUser } from '../../src/db/repositories/users';
 import { AccessDeniedError } from '../../src/services/access-control';
 import { loadProjectContext } from '../../src/services/project-context';
+import { TEST_FIREBASE_PROJECT_ID } from '../helpers/fixtures';
 
 describe('loadProjectContext', () => {
   beforeEach(async () => {
@@ -33,7 +34,7 @@ describe('loadProjectContext', () => {
   it('denies access when the user only has organization membership', async () => {
     const organization = await createOrganization({
       name: 'Demo Org',
-      firebaseProjectId: 'mindmap-aff6a',
+      firebaseProjectId: TEST_FIREBASE_PROJECT_ID,
     });
     const user = await upsertUser({
       firebaseUid: 'firebase-user-1',
@@ -63,7 +64,7 @@ describe('loadProjectContext', () => {
   it('returns the actor and membership for an explicitly accessible project', async () => {
     const organization = await createOrganization({
       name: 'Demo Org',
-      firebaseProjectId: 'mindmap-aff6a',
+      firebaseProjectId: TEST_FIREBASE_PROJECT_ID,
     });
     const user = await upsertUser({
       firebaseUid: 'firebase-user-1',

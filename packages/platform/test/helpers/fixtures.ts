@@ -14,6 +14,8 @@ import { upsertUser } from '../../src/db/repositories/users';
 import type { MindspaceFactory } from '../../src/platform-deps';
 import { provisionMindspaceForProject } from '../../src/mindspace/provisioning';
 
+export const TEST_FIREBASE_PROJECT_ID = 'test-project-id';
+
 export type SeededProject = {
   user: { id: string; firebaseUid: string };
   organization: { id: string };
@@ -57,7 +59,7 @@ export async function seedProjectFixture(
 
   const organization = await createOrganization({
     name: `Test Org ${firebaseUid.slice(0, 8)}`,
-    firebaseProjectId: 'test-project-id',
+    firebaseProjectId: TEST_FIREBASE_PROJECT_ID,
   });
   const user = await upsertUser({
     firebaseUid,

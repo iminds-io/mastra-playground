@@ -10,6 +10,7 @@ import { createProject } from '../../src/db/repositories/projects';
 import { upsertUser } from '../../src/db/repositories/users';
 import { executeProjectAgent } from '../../src/mastra/execution/execute-agent';
 import { provisionMindspaceForProject } from '../../src/mindspace/provisioning';
+import { TEST_FIREBASE_PROJECT_ID } from '../helpers/fixtures';
 
 describe('executeProjectAgent', () => {
   beforeEach(async () => {
@@ -41,7 +42,7 @@ describe('executeProjectAgent', () => {
   it('returns model text from the resolved project execution context', async () => {
     const organization = await createOrganization({
       name: 'Demo Org',
-      firebaseProjectId: 'mindmap-aff6a',
+      firebaseProjectId: TEST_FIREBASE_PROJECT_ID,
     });
     const user = await upsertUser({
       firebaseUid: 'firebase-user-1',
