@@ -150,7 +150,7 @@ compatibility_date = "2026-04-06"
 compatibility_flags = ["nodejs_compat"]
 ```
 
-Current deployed `workers.dev` URL: `https://mastra-mindspace-api.dev-726.workers.dev`
+Deployed `workers.dev` URL pattern: `https://<worker-name>.<account-subdomain>.workers.dev` (i.e. `mastra-mindspace-api.<your-cf-account>.workers.dev`). The exact deployment URL is not pinned here on purpose — Cloudflare assigns the account subdomain, and embedding it in the doc makes audits and reuse harder than it needs to be.
 
 **Per-request boot (`bootRequest()`):**
 
@@ -228,7 +228,9 @@ project_mind_configs     → per-project enable/icon/blurb/prompt overrides for 
 schema_migrations        → applied migration versions (managed by migrate.ts)
 ```
 
-Migration 004 also seeds `project_memberships` from existing `organization_memberships` and seeds a default `project_mind_configs` row for each code-defined agent (`project-agent`, `librarian`, `summarizer`, `mindspace-reviewer`, `mindspace-supervisor`) for every existing project. **Note:** `project_mind_configs.agent_id` uses the kebab-case form (`project-agent`, `mindspace-reviewer`) while the agent registry exposes most agents under camelCase keys (`projectAgent`, `mindspaceReviewer`); the join from a config to a registry agent is product-policy, not a one-to-one literal-string match.
+Migration 004 also seeds `project_memberships` from existing `organization_memberships` and seeds a default `project_mind_configs` row for each code-defined agent (`project-agent`, `librarian`, `summarizer`, `mindspace-reviewer`, `mindspace-supervisor`) for every existing project.
+
+**Convention — `project_mind_configs.agent_id` is display metadata, not a registry handle.** The seeded `agent_id` strings are kebab-case (`project-agent`, `mindspace-reviewer`) while the agent registry exposes most agents under camelCase keys (`projectAgent`, `mindspaceReviewer`). This asymmetry is intentional and currently safe: the value flows out through `services/settings.ts` → `/api/projects/:projectId/settings/minds*` for UI rendering only (display name, icon, blurb, prompt override). It is **never** used to look up an agent at runtime — the chat and gateway paths take `agentId` from the HTTP request body and pass it directly to `mastra.getAgent(...)` (`packages/platform/src/services/chat.ts:632`, `packages/platform/src/services/mindspace-mastra-gateway.ts:116, 151`). If a future feature ever wants to invoke an agent **from a config row**, it must either (a) update migration 004 / future migrations to seed values that match registry keys, or (b) introduce an explicit kebab-↔-camel normalization function — silent literal-string joins will fail.
 
 Migrations live in `packages/platform/src/db/migrations/*.sql` and are applied by `packages/platform/src/db/migrate.ts` via `pnpm --filter @mastra-mindspace/platform db:migrate`.
 
