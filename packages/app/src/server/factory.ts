@@ -50,6 +50,14 @@ import { healthRoutes } from '../routes/health';
 import { meRoutes } from '../routes/me';
 import { projectsRoutes } from '../routes/projects';
 
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`${name} is required`);
+  }
+  return value;
+}
+
 type ExecuteProjectAgent = (input: {
   firebaseUid: string;
   projectId: string;
@@ -647,11 +655,11 @@ export async function createApp(params: AppFactoryParams = {}) {
   const tokenVerifier =
     params.tokenVerifier ??
     createFirebaseTokenVerifier({
-      projectId: process.env.FIREBASE_PROJECT_ID ?? 'mindmap-aff6a',
+      projectId: requireEnv('FIREBASE_PROJECT_ID'),
     });
   const auth = createAuthMiddleware({ tokenVerifier });
 
-  const mastra = params.mastra ?? createMastra(process.env.DATABASE_URL ?? 'postgres://postgres:postgres@localhost:5432/hono_workspace');
+  const mastra = params.mastra ?? createMastra(requireEnv('DATABASE_URL'));
   const mindspaceFactory = params.mindspaceFactory ?? createLocalMindspaceFactory();
   const channelEventEmitter = params.channelEventEmitter ?? new ChannelEventEmitter();
   const platformDeps = { mastra, mindspaceFactory, channelEventEmitter };
